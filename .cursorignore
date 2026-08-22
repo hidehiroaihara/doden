@@ -1,0 +1,44 @@
+# Cursor のインデックス・AI コンテキストから除外するファイル
+# 書式は .gitignore と同じ（1行1パターン）
+#
+# ソースコード（app/, resources/, routes/, database/ 等）は除外しないこと。
+# .env など秘密情報も AI に送らないよう除外する。
+
+# --- 秘密情報 ---
+.env
+.env.*
+!.env.example
+auth.json
+
+# --- 依存パッケージ（巨大・編集しない） ---
+/vendor/
+/node_modules/
+
+# --- ビルド・生成物 ---
+/public/build/
+/public/hot
+/public/storage
+/bootstrap/cache/*.php
+/storage/framework/cache/
+/storage/framework/sessions/
+/storage/framework/views/
+/storage/logs/
+/storage/pail/
+/storage/*.key
+
+# --- テスト・キャッシュ ---
+.phpunit.cache/
+.phpunit.result.cache
+
+# --- Git / OS / エディタ ---
+.git/
+.DS_Store
+Thumbs.db
+/.idea/
+/.vscode/
+/.fleet/
+/.nova/
+/.zed/
+
+# --- その他（参照用・巨大になりがち） ---
+*.log

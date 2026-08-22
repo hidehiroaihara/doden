@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>給与システム — 法定マスタ 随時更新手順</title>
+  <style>
+    :root{
+      --teal:#0d9488;--teal-light:#f0fdfa;--red:#dc2626;--red-bg:#fef2f2;
+      --amber:#d97706;--amber-bg:#fffbeb;--green:#16a34a;--green-bg:#f0fdf4;
+      --blue:#2563eb;--blue-bg:#eff6ff;
+      --gray-50:#f9fafb;--gray-100:#f3f4f6;--gray-200:#e5e7eb;--gray-300:#d1d5db;
+      --gray-500:#6b7280;--gray-700:#374151;--gray-900:#111827;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{font-family:"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP",sans-serif;font-size:14px;line-height:1.7;color:var(--gray-900);background:var(--gray-50);}
+    .layout{display:flex;min-height:100vh;}
+    nav{width:250px;flex-shrink:0;background:#fff;border-right:1px solid var(--gray-200);padding:24px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;}
+    nav h2{font-size:11px;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;}
+    nav a{display:block;padding:6px 10px;border-radius:6px;color:var(--gray-700);text-decoration:none;font-size:13px;margin-bottom:2px;}
+    nav a:hover{background:var(--teal-light);color:var(--teal);}
+    main{flex:1;padding:32px 40px 80px;max-width:1000px;}
+    h1{font-size:22px;font-weight:700;color:var(--teal);margin-bottom:4px;}
+    .subtitle{color:var(--gray-500);font-size:13px;margin-bottom:28px;}
+    h2{font-size:17px;font-weight:700;margin:38px 0 14px;padding-bottom:8px;border-bottom:2px solid var(--teal);}
+    h3{font-size:14px;font-weight:700;margin:22px 0 10px;color:var(--gray-700);}
+    p{margin-bottom:10px;}
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-bottom:24px;}
+    .card{background:#fff;border-radius:12px;padding:16px;border:1px solid var(--gray-200);box-shadow:0 1px 3px rgba(0,0,0,.04);}
+    .card .label{font-size:11px;color:var(--gray-500);margin-bottom:4px;}
+    .card .value{font-size:18px;font-weight:700;}
+    .card .note{font-size:11px;color:var(--gray-500);margin-top:4px;}
+    .alert{border-radius:10px;padding:14px 18px;margin:16px 0;font-size:13px;}
+    .alert-warn{background:var(--amber-bg);border:1px solid #fcd34d;color:#92400e;}
+    .alert-info{background:var(--teal-light);border:1px solid #99f6e4;color:#115e59;}
+    .alert-danger{background:var(--red-bg);border:1px solid #fca5a5;color:#991b1b;}
+    table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;background:#fff;border-radius:8px;overflow:hidden;}
+    thead th{background:var(--gray-100);text-align:left;padding:8px 12px;font-weight:600;color:var(--gray-700);border-bottom:2px solid var(--gray-200);white-space:nowrap;}
+    tbody td{padding:8px 12px;border-bottom:1px solid var(--gray-100);vertical-align:top;}
+    tbody tr:hover{background:#fafafa;}
+    code,.mono{font-family:"SF Mono","Fira Code",monospace;font-size:12px;color:#0f766e;background:var(--teal-light);padding:1px 5px;border-radius:4px;}
+    .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap;}
+    .badge-auto{background:var(--green-bg);color:var(--green);}
+    .badge-ops{background:var(--blue-bg);color:var(--blue);}
+    .badge-dev{background:var(--amber-bg);color:var(--amber);}
+    .steps{counter-reset:step;list-style:none;padding:0;margin:12px 0;}
+    .steps li{position:relative;padding:10px 12px 10px 44px;background:#fff;border:1px solid var(--gray-200);border-radius:10px;margin-bottom:8px;font-size:13px;}
+    .steps li::before{counter-increment:step;content:counter(step);position:absolute;left:12px;top:10px;width:22px;height:22px;border-radius:50%;background:var(--teal);color:#fff;font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;}
+    .rule{background:#fff;border-left:4px solid var(--teal);padding:12px 16px;margin:12px 0;border-radius:0 8px 8px 0;box-shadow:0 1px 2px rgba(0,0,0,.04);}
+    .rule strong{color:var(--teal);}
+    pre{background:#0f172a;color:#e2e8f0;padding:12px 16px;border-radius:8px;overflow-x:auto;font-size:12px;line-height:1.6;margin:10px 0;font-family:"SF Mono","Fira Code",monospace;}
+    ul.plain{padding-left:20px;margin-bottom:12px;}
+    ul.plain li{margin-bottom:5px;}
+    a.ext{color:var(--blue);}
+    .cmd{position:relative;margin:10px 0 18px;}
+    .cmd header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px;}
+    .cmd header strong{font-size:13px;color:var(--gray-700);}
+    .cmd header span.desc{font-size:12px;color:var(--gray-500);}
+    .cmd pre{margin:0;padding-right:88px;}
+    .copy-btn{
+      flex-shrink:0;border:1px solid var(--gray-200);background:#fff;color:var(--teal);
+      border-radius:6px;padding:4px 10px;font-size:12px;font-weight:600;cursor:pointer;
+    }
+    .copy-btn:hover{background:var(--teal-light);}
+    .copy-btn.ok{color:var(--green);border-color:#86efac;}
+    .cmd-overlay{
+      position:absolute;top:38px;right:8px;border:0;background:#334155;color:#fff;
+      border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;cursor:pointer;
+    }
+    .cmd-overlay:hover{background:#0d9488;}
+    @media (max-width:768px){.layout{flex-direction:column;}nav{width:100%;height:auto;position:static;}main{padding:20px 16px;}}
+    @media print{nav{display:none;}main{max-width:100%;padding:0;}}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav>
+    <h2>目次</h2>
+    <a href="#intro">このメモの目的</a>
+    <a href="#concept">2つの大原則</a>
+    <a href="#inventory">法定マスタ一覧</a>
+    <a href="#protect">過去を保護する仕組み</a>
+    <a href="#cmds">コマンド一覧（コピペ）</a>
+    <a href="#ops">運用者の更新手順</a>
+    <a href="#dev">開発者の更新手順</a>
+    <a href="#kyokai">協会けんぽ料率</a>
+    <a href="#office">事業所の料率セット</a>
+    <a href="#grade">標準報酬 等級表</a>
+    <a href="#tax">源泉所得税・賞与</a>
+    <a href="#labor">労災・雇用保険</a>
+    <a href="#fiscal">年度設定</a>
+    <a href="#care">介護保険・扶養</a>
+    <a href="#checklist">年次チェックリスト</a>
+    <a href="#sources">公式データ入手先</a>
+    <a href="#files">関連ファイル</a>
+  </nav>
+
+  <main>
+    <h1>法定マスタ 随時更新手順</h1>
+    <p class="subtitle">doden 給与システム — 保険料率・税額表・標準報酬等級の「改定時の反映方法」メモ（2026-08-17 実装分）</p>
+
+    <!-- intro -->
+    <section id="intro">
+      <div class="alert alert-info">
+        <strong>結論から。</strong> 料率や税額表が改定されても、原則<b>管理画面の操作だけ</b>で反映できます（協会けんぽ料率・事業所料率セット・年度設定）。
+        税額表・標準報酬等級のように頻度が低く全国共通のものは、<b>年度データを1回追加</b>すれば全社に効きます。
+        いずれも<b>外部APIは不要</b>で、国が公表する公開データ（PDF/Excel）を取り込む方式です。
+      </div>
+      <div class="cards">
+        <div class="card"><div class="label">外部API</div><div class="value" style="color:var(--red)">不要</div><div class="note">公開データを同梱／取込</div></div>
+        <div class="card"><div class="label">更新の考え方</div><div class="value" style="color:var(--teal)">追加型</div><div class="note">古い行は消さず新期間を追加</div></div>
+        <div class="card"><div class="label">過去給与</div><div class="value" style="color:var(--green)">保護</div><div class="note">適用期間＋明細スナップショット</div></div>
+        <div class="card"><div class="label">介護該当</div><div class="value" style="color:var(--green)">自動</div><div class="note">生年月日で40〜64歳を判定</div></div>
+      </div>
+    </section>
+
+    <!-- cmds -->
+    <section id="cmds">
+      <h2>コマンド一覧（コピペして実行）</h2>
+      <p>プロジェクト直下（<code>/Applications/MAMP/htdocs/laravel/doden</code>）で実行します。読み取り専用です。料率・過去給与は変わりません。</p>
+      <div class="alert alert-info">
+        タブ分けして全部見たいときは <b>Excel（<code>--xlsx</code>）だけ</b>使ってください。
+        <code>--csv</code> と両方実行するとファイルが2つできます（CSV＝協会けんぽのみ / xlsx＝全保険のタブ分け）。
+        毎回時刻入りの新しいファイル名になるので、前回分は消えません。
+      </div>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates --xlsx">
+        <header>
+          <strong>いちばん使う：全保険料率をタブ分けExcelで出力</strong>
+          <span class="desc">協会けんぽ / 雇用保険 / 労災保険 / 全国一律 / 事業所セット</span>
+        </header>
+        <pre>php artisan payroll:rates --xlsx</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+      <p>出力先: <code>storage/app/payroll_rates_YYYYmmdd_His.xlsx</code><br>
+      保存先を指定する場合:</p>
+      <div class="cmd" data-cmd="php artisan payroll:rates --xlsx=資料/料率一覧.xlsx">
+        <header><strong>Excelの保存先を指定</strong></header>
+        <pre>php artisan payroll:rates --xlsx=資料/料率一覧.xlsx</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates 東京 --xlsx">
+        <header><strong>都道府県・事業所名で絞ってExcel出力</strong><span class="desc">例: 東京</span></header>
+        <pre>php artisan payroll:rates 東京 --xlsx</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates --office">
+        <header><strong>ターミナルで全内容を確認</strong><span class="desc">ファイルは作らない。事業所セットも含む</span></header>
+        <pre>php artisan payroll:rates --office</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates 東京 --office --date=2026-04-01">
+        <header><strong>指定日・指定地名でターミナル確認</strong></header>
+        <pre>php artisan payroll:rates 東京 --office --date=2026-04-01</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates --csv">
+        <header><strong>協会けんぽだけCSV（公式表との突合用）</strong><span class="desc">健保・介護の47都道府県のみ。全保険ではない</span></header>
+        <pre>php artisan payroll:rates --csv</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+      <p>出力先: <code>storage/app/payroll_kyokai_rates_YYYYmmdd_His.csv</code>（Excelで文字化けしないようUTF-8 BOM付き）</p>
+
+      <div class="cmd" data-cmd="php artisan payroll:rates --date=2026-04-01 --compare=2027-03-01">
+        <header><strong>現在 → 更新後の差分</strong><span class="desc">シーダーに新年度を足したあと、どこが何%変わったかを確認</span></header>
+        <pre>php artisan payroll:rates --date=2026-04-01 --compare=2027-03-01</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <h3>公式URLを出す / マスタを投入する</h3>
+      <div class="cmd" data-cmd="php artisan payroll:rates --urls">
+        <header><strong>公式公表ページのURLを表示</strong></header>
+        <pre>php artisan payroll:rates --urls</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+      <div class="cmd" data-cmd="php artisan db:seed --class=LegalMasterSeeder">
+        <header><strong>法定マスタを投入（冪等・追加型）</strong><span class="desc">新しい effective_from の行をシードに足してから実行</span></header>
+        <pre>php artisan db:seed --class=LegalMasterSeeder</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+      <div class="cmd" data-cmd="php artisan migrate">
+        <header><strong>マイグレーション（新規テーブルがあるときだけ）</strong></header>
+        <pre>php artisan migrate</pre>
+        <button type="button" class="cmd-overlay" onclick="copyCmd(this)">コピー</button>
+      </div>
+
+      <table>
+        <thead><tr><th>やりたいこと</th><th>コマンド</th><th>できるファイル</th></tr></thead>
+        <tbody>
+          <tr><td>全保険をタブ分けで見る</td><td><code>payroll:rates --xlsx</code></td><td>xlsx 1つ（5シート）</td></tr>
+          <tr><td>協会けんぽだけ公式表と並べる</td><td><code>payroll:rates --csv</code></td><td>csv 1つ</td></tr>
+          <tr><td>画面なしで中身を見る</td><td><code>payroll:rates --office</code></td><td>なし（ターミナル）</td></tr>
+          <tr><td>改定前後の差を見る</td><td><code>--date=… --compare=…</code></td><td>なし（ターミナル）</td></tr>
+          <tr><td>シードをDBへ反映</td><td><code>db:seed --class=LegalMasterSeeder</code></td><td>なし（DB更新）</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- concept -->
+    <section id="concept">
+      <h2>2つの大原則</h2>
+      <div class="rule">
+        <strong>原則1: 追加はするが、過去は編集しない。</strong><br>
+        料率・税額表・等級表はすべて「適用開始日（<code>effective_from</code>）」を持ちます。改定時は
+        <b>新しい適用開始日の行を追加</b>してください。既存（過去）の行を書き換えると、当時の給与を再計算した際の根拠が失われます。
+      </div>
+      <div class="rule">
+        <strong>原則2: 計算時に「使った値」を明細へ焼き付ける（スナップショット）。</strong><br>
+        給与計算を実行すると、その時点の料率セットID・各保険料率・標準報酬月額・等級・税額表区分・扶養数・所得税マスタの識別子を
+        給与明細（<code>payslips</code>）へ保存します。あとでマスタを直しても、確定済み明細の内容と表示は変わりません。
+      </div>
+    </section>
+
+    <!-- inventory -->
+    <section id="inventory">
+      <h2>法定マスタ一覧（どこから来て、どう更新するか）</h2>
+      <table>
+        <thead><tr><th>マスタ</th><th>格納先</th><th>現在の同梱値（適用開始）</th><th>更新者</th><th>更新方法の要旨</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><b>協会けんぽ 都道府県別<br>健康・介護料率</b></td>
+            <td><code>kyokai_kenpo_rates</code></td>
+            <td>令和6年度（<code>2024-03-01</code>）47都道府県／介護16.0‰</td>
+            <td><span class="badge badge-dev">開発</span>→<span class="badge badge-ops">運用</span></td>
+            <td>Seederに新年度行を追加 → 画面で「都道府県料率を反映」</td>
+          </tr>
+          <tr>
+            <td><b>事業所の保険料率<br>（実際に使う値）</b></td>
+            <td><code>insurance_rate_sets</code><br><code>insurance_rates</code></td>
+            <td>本社ほか（<code>2026-04-01</code> など）千分率</td>
+            <td><span class="badge badge-ops">運用</span></td>
+            <td>基本設定＞社会保険で「料率セットを追加」→反映/手入力</td>
+          </tr>
+          <tr>
+            <td><b>標準報酬月額 等級表</b></td>
+            <td><code>standard_reward_grades</code></td>
+            <td>健保50等級／厚年32等級（<code>2020-09-01</code>）</td>
+            <td><span class="badge badge-dev">開発</span></td>
+            <td>改定はまれ。<code>LegalMasterSeeder</code>に新年度行を追加</td>
+          </tr>
+          <tr>
+            <td><b>源泉所得税（月額）</b></td>
+            <td><code>income_tax_brackets</code></td>
+            <td>電算機特例係数（<code>2020-01-01</code>）</td>
+            <td><span class="badge badge-dev">開発</span></td>
+            <td><code>LegalMasterSeeder</code>に新年度の甲欄/乙欄行を追加</td>
+          </tr>
+          <tr>
+            <td><b>賞与の算出率</b></td>
+            <td><code>bonus_tax_rate_brackets</code></td>
+            <td>甲欄/乙欄（<code>2020-01-01</code>）</td>
+            <td><span class="badge badge-dev">開発</span></td>
+            <td>同上（賞与率表）</td>
+          </tr>
+          <tr>
+            <td><b>労災・雇用 業種別料率</b></td>
+            <td><code>App\Support\LaborInsuranceRates</code><br>→ <code>insurance_rates</code></td>
+            <td>業種プリセット（千分率）</td>
+            <td><span class="badge badge-dev">開発</span>→<span class="badge badge-ops">運用</span></td>
+            <td>プリセット更新 → 事業所の業種選択で自動反映</td>
+          </tr>
+          <tr>
+            <td><b>年度設定（休日/所定労働）</b></td>
+            <td><code>fiscal_years</code> ほか</td>
+            <td>現行年度</td>
+            <td><span class="badge badge-ops">運用</span></td>
+            <td>基本設定＞年度タブで年度を追加</td>
+          </tr>
+          <tr>
+            <td><b>介護保険 該当</b></td>
+            <td><span class="badge badge-auto">自動</span> 生年月日</td>
+            <td>満40〜64歳を自動判定</td>
+            <td>—</td>
+            <td>更新不要（従業員情報で上書き可）</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="alert alert-warn">
+        <strong>重要（数値の正確性）：</strong> 同梱している料率・税額表・等級表は「実装時点の公表値」です。
+        本番運用の前に、<b>対象年度の官報・協会けんぽの公表値</b>と必ず突合してください（<a href="#sources">公式データ入手先</a>参照）。
+      </div>
+    </section>
+
+    <!-- protect -->
+    <section id="protect">
+      <h2>過去を塗り替えない仕組み（3層）</h2>
+      <ul class="plain">
+        <li><b>① 適用期間</b>：料率・税額表・等級表は支給日で「当時の行」を引く。新年度は追加、過去は不変。</li>
+        <li><b>② 明細スナップショット</b>：計算実行時に、使った料率セットID・各料率・標準報酬・等級・税額表区分・扶養数・所得税マスタ識別子を <code>payslips</code> に保存。PDF/画面の関連情報もこのスナップショットを優先表示。</li>
+        <li><b>③ 確定ロック</b>：確定（finalized）バッチは再計算・編集不可。</li>
+      </ul>
+      <div class="alert alert-danger">
+        <strong>唯一の注意点：確定解除→再計算。</strong> 確定を解除して再計算すると、<b>その時点の（＝最新の）マスタ</b>が適用され、過去の内容が上書きされます。
+        当時の内容を保つ必要がある場合は、<b>再計算せずに</b>確定し直してください（画面にも警告を表示します）。
+      </div>
+    </section>
+
+    <!-- ops -->
+    <section id="ops">
+      <h2>運用者（管理画面のみ）でできる更新</h2>
+      <p>プログラム変更なしで実施できる、日常運用の更新です。</p>
+      <ul class="plain">
+        <li>事業所の保険料率の改定（新年度の料率セット追加＋協会けんぽ反映）→ <a href="#office">事業所の料率セット</a></li>
+        <li>都道府県が変わった／料率を当てはめ直したい → <a href="#kyokai">協会けんぽ料率</a></li>
+        <li>事業所の業種変更に伴う労災・雇用料率 → <a href="#labor">労災・雇用保険</a></li>
+        <li>年度（休日・所定労働時間）の切替 → <a href="#fiscal">年度設定</a></li>
+        <li>個々人の介護該当・扶養親族数の調整 → <a href="#care">介護保険・扶養</a></li>
+      </ul>
+    </section>
+
+    <!-- dev -->
+    <section id="dev">
+      <h2>開発者（データ追加）でおこなう更新</h2>
+      <p>全国共通で頻度が低いもの（税額表・等級表・協会けんぽ全県料率）は、Seederに新年度データを追記して1回流します。既存行は消さず、<b>新しい <code>effective_from</code> を追加</b>します。</p>
+      <pre># 1. LegalMasterSeeder.php に新年度の行を追記（effective_from を新年度に）
+# 2. マイグレーション適用（新規テーブルがある場合のみ）
+php artisan migrate
+
+# 3. 法定マスタだけ流し込む（冪等：何度実行してもOK）
+php artisan db:seed --class=LegalMasterSeeder
+
+# 4. 反映確認（Excelで全保険をタブ分け出力）
+php artisan payroll:rates --xlsx
+
+# 5. 現在と新年度の差分（日付は実値に合わせる）
+php artisan payroll:rates --date=2026-04-01 --compare=2027-03-01</pre>
+      <div class="alert alert-info">
+        <code>LegalMasterSeeder</code> は <code>updateOrCreate</code>（種別＋等級＋適用開始日 などをキー）で冪等です。
+        <b>本番では <code>migrate:fresh</code> は使わない</b>でください（全データが消えます）。追加シードのみ流します。
+      </div>
+    </section>
+
+    <!-- kyokai -->
+    <section id="kyokai">
+      <h2>協会けんぽ 都道府県別料率（健康・介護）</h2>
+      <h3>年度改定を反映する（開発→運用）</h3>
+      <ol class="steps">
+        <li><code>database/seeders/LegalMasterSeeder.php</code> の <code>seedKyokaiKenpoRates()</code> に、新年度の <code>$from</code>（例 <code>'2025-03-01'</code>）と47都道府県の健保料率・介護料率(‰・総額)を追記。</li>
+        <li><code>php artisan db:seed --class=LegalMasterSeeder</code> を実行（旧年度行は残り、新年度行が増える）。確認は <a href="#cmds">コマンド一覧</a> の <code>--xlsx</code> / <code>--compare</code>。</li>
+        <li>管理画面＞基本設定＞<b>社会保険</b>タブで、対象事業所に<b>新しい料率セット</b>（新年度の <code>effective_from</code>）を追加。</li>
+        <li>その料率セットの<b>「都道府県料率を反映」</b>ボタンを押す。健保・介護（都道府県別）＋厚年・拠出金（全国一律の標準値）が自動セットされる。</li>
+        <li>表示された料率を確認して保存。</li>
+      </ol>
+      <div class="alert alert-info">「都道府県料率を反映」は、事業所の<b>健康保険の種類が「協会けんぽ」</b>かつ<b>都道府県が設定済み</b>のときに有効です。組合健保は組合の料額表を手入力してください。</div>
+    </section>
+
+    <!-- office -->
+    <section id="office">
+      <h2>事業所の保険料率セット（実際に計算で使う値）</h2>
+      <p>給与計算は「支給日に有効な事業所の料率セット」を参照します。改定は<b>上書きではなく新セット追加</b>です。</p>
+      <ol class="steps">
+        <li>基本設定＞社会保険タブ＞「料率セットを追加」で、事業所・名称・<b>適用開始日</b>（例 4/1）を入力して作成。</li>
+        <li>協会けんぽなら「都道府県料率を反映」。組合健保等は各料率を千分率で手入力。</li>
+        <li>厚生年金は全国一律（総額183.00‰＝労使折半で各91.50‰）。子ども・子育て拠出金は事業主のみ（現行3.60‰）。</li>
+        <li>保存。以後、その適用開始日以降の給与計算に自動適用される。</li>
+      </ol>
+      <div class="alert alert-warn">料率は画面上<b>千分率（/1,000）</b>で表示・保存します（健保 4.99% → <code>49.9</code>）。%と混同しないでください。</div>
+    </section>
+
+    <!-- grade -->
+    <section id="grade">
+      <h2>標準報酬月額 等級表</h2>
+      <p>健保50等級・厚年32等級を <code>2020-09-01</code> 適用で全件同梱済み。等級表自体の改定はまれ（厚年上限追加など）です。</p>
+      <ul class="plain">
+        <li><b>等級表の改定時（開発）：</b> <code>LegalMasterSeeder::seedStandardRewardGrades()</code> に新しい <code>$from</code> で全等級を追記 → <code>db:seed --class=LegalMasterSeeder</code>。</li>
+        <li><b>従業員の標準報酬（運用）：</b> 従業員情報＞給与情報で「標準報酬月額」を入力すると、対象日基準で等級が自動解決されます。定時決定（毎年7月）・随時改定の際に更新してください。</li>
+      </ul>
+    </section>
+
+    <!-- tax -->
+    <section id="tax">
+      <h2>源泉所得税（月額）・賞与の算出率</h2>
+      <p>甲欄/乙欄の係数を <code>income_tax_brackets</code> / <code>bonus_tax_rate_brackets</code> に適用期間つきで保持。マスタ未投入期間は内蔵既定へ自動フォールバックします。</p>
+      <ol class="steps">
+        <li><code>LegalMasterSeeder</code> の <code>seedIncomeTaxBrackets()</code> / <code>seedBonusTaxBrackets()</code> に、新年度の <code>$from</code> と係数を追記。</li>
+        <li><code>php artisan db:seed --class=LegalMasterSeeder</code>。</li>
+        <li>過去の支給日は旧行、改定日以降は新行を自動参照（明細スナップショットに <code>income_tax_source</code> を記録）。</li>
+      </ol>
+      <div class="alert alert-warn">
+        月次は「電子計算機による源泉徴収税額の計算（電算機特例）」の係数方式を採用しています。国税庁の<b>「月額表」</b>や<b>年末調整</b>とは端数処理で数円差が出る場合があります。厳密一致が要る場合は係数を年度の告示値へ差し替えてください。
+      </div>
+    </section>
+
+    <!-- labor -->
+    <section id="labor">
+      <h2>労災保険・雇用保険（業種別料率）</h2>
+      <ul class="plain">
+        <li><b>料率の改定（開発）：</b> <code>app/Support/LaborInsuranceRates.php</code> の業種プリセット（千分率）を更新。</li>
+        <li><b>反映（運用）：</b> 事業所編集で労災の業種・雇用の事業種類を選択して保存すると、最新の料率セットの <code>accident</code> / <code>employment</code> に自動セットされます。</li>
+        <li>雇用保険（従業員負担）は「労働保険の計算対象」に料率を掛けて<b>自動計算</b>。労災は事業主負担のみ（従業員控除0）。</li>
+      </ul>
+    </section>
+
+    <!-- fiscal -->
+    <section id="fiscal">
+      <h2>年度設定（休日・所定労働時間）</h2>
+      <p>基本設定＞<b>年度</b>タブで年度ごとに休日・独自休日・1日の所定労働時間・月平均日数を管理します。給与計算は支給日の年度設定を優先参照します。新年度は<b>新しい年度を追加</b>してください（過去年度は保持）。直リンク: <code>/admin/payroll/settings#fiscal_year</code></p>
+    </section>
+
+    <!-- care -->
+    <section id="care">
+      <h2>介護保険の該当・扶養親族数</h2>
+      <ul class="plain">
+        <li><b>介護保険該当：</b> 生年月日から満40〜64歳を計算時に自動判定（40歳到達月〜65歳到達月の前月）。従業員情報＞給与情報の「介護保険該当」で <b>自動判定／対象にする／対象外にする</b> を選べます（既定＝自動）。</li>
+        <li><b>扶養親族等の数：</b> 従業員情報の入力値を優先。未入力（0）の場合は、扶養親族（所得税対象）の登録件数から自動集計します。</li>
+      </ul>
+    </section>
+
+    <!-- checklist -->
+    <section id="checklist">
+      <h2>年次チェックリスト（毎年3〜4月・7月）</h2>
+      <table>
+        <thead><tr><th>時期</th><th>対象</th><th>やること</th><th>担当</th></tr></thead>
+        <tbody>
+          <tr><td>3月（協会けんぽ改定）</td><td>健保・介護料率</td><td>新年度を Seeder へ追加 → <code>db:seed --class=LegalMasterSeeder</code> → <code>payroll:rates --xlsx</code> と公式表を突合 → 事業所に新セット追加 →「都道府県料率を反映」</td><td><span class="badge badge-dev">開発</span>＋<span class="badge badge-ops">運用</span></td></tr>
+          <tr><td>4月（雇用保険改定年）</td><td>雇用・労災料率</td><td><code>LaborInsuranceRates</code> 更新 → 事業所の業種を保存し直す</td><td><span class="badge badge-dev">開発</span>＋<span class="badge badge-ops">運用</span></td></tr>
+          <tr><td>年度替わり</td><td>年度設定</td><td>新年度の休日・所定労働を追加</td><td><span class="badge badge-ops">運用</span></td></tr>
+          <tr><td>税制改正時</td><td>源泉税・賞与率</td><td>新年度係数を <code>LegalMasterSeeder</code> へ追加</td><td><span class="badge badge-dev">開発</span></td></tr>
+          <tr><td>7月（算定）〜随時</td><td>標準報酬月額</td><td>定時決定・随時改定で従業員の標準報酬を更新</td><td><span class="badge badge-ops">運用</span></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- sources -->
+    <section id="sources">
+      <h2>公式データ入手先（突合用）</h2>
+      <ul class="plain">
+        <li>協会けんぽ 都道府県別 保険料額表：<a class="ext" href="https://www.kyoukaikenpo.or.jp/g7/cat330/" target="_blank" rel="noopener">kyoukaikenpo.or.jp（都道府県毎の保険料額表）</a></li>
+        <li>日本年金機構 標準報酬月額・保険料額表：<a class="ext" href="https://www.nenkin.go.jp/service/kounen/hokenryo/ryogaku/" target="_blank" rel="noopener">nenkin.go.jp（厚生年金保険料額表）</a></li>
+        <li>国税庁 源泉徴収税額表／電算機特例：<a class="ext" href="https://www.nta.go.jp/publication/pamph/gensen/zeigakuhyo2022/01.htm" target="_blank" rel="noopener">nta.go.jp（源泉徴収税額表）</a></li>
+        <li>厚生労働省 雇用保険料率：<a class="ext" href="https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/koyou_roudou/roudoukijun/hoken/koyouhoken/index.html" target="_blank" rel="noopener">mhlw.go.jp（雇用保険料率）</a></li>
+        <li>厚生労働省 労災保険率表：<a class="ext" href="https://www.mhlw.go.jp/bunya/roudoukijun/rousaihoken06/" target="_blank" rel="noopener">mhlw.go.jp（労災保険率）</a></li>
+      </ul>
+      <div class="alert alert-warn">URLは変わることがあります。「協会けんぽ 保険料額表 令和○年度」等で検索して最新の公表資料を確認してください。</div>
+    </section>
+
+    <!-- files -->
+    <section id="files">
+      <h2>関連ファイル</h2>
+      <table>
+        <thead><tr><th>役割</th><th>パス</th></tr></thead>
+        <tbody>
+          <tr><td>料率確認コマンド</td><td><code>app/Console/Commands/PayrollRatesCommand.php</code>（<code>php artisan payroll:rates</code>）</td></tr>
+          <tr><td>法定マスタ同梱シード</td><td><code>database/seeders/LegalMasterSeeder.php</code></td></tr>
+          <tr><td>協会けんぽ料率テーブル</td><td><code>app/Models/KyokaiKenpoRate.php</code> / <code>..._create_kyokai_kenpo_rates_table.php</code></td></tr>
+          <tr><td>源泉税・賞与率テーブル</td><td><code>app/Models/IncomeTaxBracket.php</code> / <code>BonusTaxRateBracket.php</code></td></tr>
+          <tr><td>等級表</td><td><code>app/Models/StandardRewardGrade.php</code></td></tr>
+          <tr><td>料率反映アクション</td><td><code>PayrollSettingController::applyKyokaiRates()</code></td></tr>
+          <tr><td>計算＋スナップショット</td><td><code>app/Services/Payroll/PayrollCalculator.php</code> / <code>BonusCalculator.php</code></td></tr>
+          <tr><td>源泉税計算</td><td><code>app/Services/Payroll/IncomeTaxCalculator.php</code> / <code>BonusTaxCalculator.php</code></td></tr>
+          <tr><td>介護保険判定</td><td><code>app/Support/CareInsurance.php</code></td></tr>
+          <tr><td>明細スナップショット列</td><td><code>..._add_master_snapshot_to_payslips_table.php</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+<script>
+function copyCmd(btn) {
+  var box = btn.closest('.cmd');
+  var text = (box && box.getAttribute('data-cmd')) || (box && box.querySelector('pre') && box.querySelector('pre').textContent) || '';
+  navigator.clipboard.writeText(text.trim()).then(function () {
+    var prev = btn.textContent;
+    btn.textContent = 'コピー済';
+    btn.classList.add('ok');
+    setTimeout(function () { btn.textContent = prev; btn.classList.remove('ok'); }, 1500);
+  });
+}
+</script>
+</body>
+</html>
