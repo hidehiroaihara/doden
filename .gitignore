@@ -22,6 +22,7 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+/.last_deploy_commit
 docs/face-detection-sensitivity.md
 _doc/MULTI_AUTH_SETUP.md
 /資料/
