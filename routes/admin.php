@@ -60,6 +60,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::post('departments', [DepartmentController::class, 'store'])->name('departments.store');
         Route::put('departments/{department}', [DepartmentController::class, 'update'])->name('departments.update');
         Route::delete('departments/{department}', [DepartmentController::class, 'destroy'])->name('departments.destroy');
+        // 店舗に紐付く打刻端末（認証URL）の発行・再発行・削除
+        Route::post('departments/{department}/terminals', [DepartmentController::class, 'storeTerminal'])->name('departments.terminals.store');
+        Route::post('departments/terminals/{terminal}/reissue', [DepartmentController::class, 'reissueTerminalKey'])->name('departments.terminals.reissue');
+        Route::delete('departments/terminals/{terminal}', [DepartmentController::class, 'destroyTerminal'])->name('departments.terminals.destroy');
 
         // 打刻管理
         Route::get('attendances', [AttendanceController::class, 'index'])->name('attendances.index');

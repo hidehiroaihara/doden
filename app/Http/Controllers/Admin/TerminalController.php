@@ -24,18 +24,20 @@ class TerminalController extends Controller
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'name'        => ['required', 'string', 'max:100'],
-            'terminal_id' => ['required', 'string', 'max:100', 'unique:terminals,terminal_id', 'regex:/^[a-zA-Z0-9_\-]+$/'],
-            'description' => ['nullable', 'string', 'max:255'],
-            'is_active'   => ['boolean'],
+            'name'          => ['required', 'string', 'max:100'],
+            'terminal_id'   => ['required', 'string', 'max:100', 'unique:terminals,terminal_id', 'regex:/^[a-zA-Z0-9_\-]+$/'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'description'   => ['nullable', 'string', 'max:255'],
+            'is_active'     => ['boolean'],
         ]);
 
         Terminal::create([
-            'name'         => $validated['name'],
-            'terminal_id'  => $validated['terminal_id'],
-            'terminal_key' => Terminal::generateKey(),
-            'is_active'    => $validated['is_active'] ?? true,
-            'description'  => $validated['description'] ?? null,
+            'name'          => $validated['name'],
+            'terminal_id'   => $validated['terminal_id'],
+            'terminal_key'  => Terminal::generateKey(),
+            'department_id' => $validated['department_id'] ?? null,
+            'is_active'     => $validated['is_active'] ?? true,
+            'description'   => $validated['description'] ?? null,
         ]);
 
         return redirect()->route('admin.terminals.index')->with('success', '端末を追加しました');
@@ -51,9 +53,10 @@ class TerminalController extends Controller
     public function update(Request $request, Terminal $terminal)
     {
         $validated = $request->validate([
-            'name'        => ['required', 'string', 'max:100'],
-            'description' => ['nullable', 'string', 'max:255'],
-            'is_active'   => ['boolean'],
+            'name'          => ['required', 'string', 'max:100'],
+            'department_id' => ['nullable', 'integer', 'exists:departments,id'],
+            'description'   => ['nullable', 'string', 'max:255'],
+            'is_active'     => ['boolean'],
         ]);
 
         $terminal->update($validated);

@@ -22,6 +22,12 @@ class Department extends Model
         return $this->hasMany(User::class);
     }
 
+    /** この店舗に紐付く打刻端末。 */
+    public function terminals(): HasMany
+    {
+        return $this->hasMany(Terminal::class);
+    }
+
     public function businessLocation(): BelongsTo
     {
         return $this->belongsTo(BusinessLocation::class);

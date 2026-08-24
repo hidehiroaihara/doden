@@ -8,7 +8,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
-Route::middleware(['restrict.ip', 'check.terminal'])->group(function () {
+// 打刻画面は「IP一致 OR 端末キー」のどちらかを満たせばアクセス可（PunchAccess）
+Route::middleware(['punch.access'])->group(function () {
     /**
      * 打刻トップ（全店舗）と店舗別打刻画面で共通の描画処理。
      * $department が指定された場合はその店舗のユーザー・当日打刻のみを表示する。

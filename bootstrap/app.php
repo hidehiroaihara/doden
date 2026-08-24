@@ -27,6 +27,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'admin.auth'       => \App\Http\Middleware\EnsureAdminAuthenticated::class,
             'admin.permission' => \App\Http\Middleware\CheckAdminPermission::class,
             'check.terminal'   => \App\Http\Middleware\CheckPunchTerminal::class,
+            // 打刻画面/API のアクセス制御（IP一致 OR 端末キーのどちらかで許可）
+            'punch.access'     => \App\Http\Middleware\PunchAccess::class,
         ]);
 
         $middleware->redirectGuestsTo(function ($request) {

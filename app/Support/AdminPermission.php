@@ -74,6 +74,9 @@ class AdminPermission
         'admin.departments.store'            => ['users', 'write'],
         'admin.departments.update'           => ['users', 'write'],
         'admin.departments.destroy'          => ['users', 'write'],
+        'admin.departments.terminals.store'  => ['users', 'write'],
+        'admin.departments.terminals.reissue' => ['users', 'write'],
+        'admin.departments.terminals.destroy' => ['users', 'write'],
 
         // 打刻管理 — 閲覧
         'admin.attendances.index'            => ['attendances', 'read'],
