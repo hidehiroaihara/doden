@@ -50,13 +50,7 @@ class PayslipExportController extends Controller
             'requested_by' => Auth::guard('admin')->id(),
         ]);
 
-        // 同期実行: キューワーカー常駐なしでもリクエスト内で生成〜完了させる。
-        // ジョブ側は例外時に status=failed を記録するため、ここでの例外は握りつぶし画面へ状態を返す。
-        try {
-            GeneratePayslipArchive::dispatchSync($export->id);
-        } catch (\Throwable $e) {
-            report($e);
-        }
+        $this->dispatchArchive($export->id);
 
         $export->refresh();
 
@@ -64,7 +58,41 @@ class PayslipExportController extends Controller
             return back()->with('success', 'ZIP出力が完了しました。出力履歴からダウンロードしてください。');
         }
 
-        return back()->with('error', $export->error_message ?: 'ZIP出力に失敗しました。');
+        if ($export->status === 'failed') {
+            return back()->with('error', $export->error_message ?: 'ZIP出力に失敗しました。');
+        }
+
+        return back()->with('success', 'ZIP出力を開始しました。完了後に出力履歴からダウンロードできます。');
+    }
+
+    /**
+     * ZIP生成ジョブを起動する。
+     *
+     * - キューワーカーが常駐する環境（本番の doden-queue / QUEUE_CONNECTION=sync）では
+     *   dispatch() で投入し、worker（sync なら即時）が処理する。
+     * - ローカル等でキューワーカーを起動していない場合（database 接続かつ worker 無し）は
+     *   ジョブが滞留して完了しないため、その場で同期実行して完了させる。
+     */
+    private function dispatchArchive(int $exportId): void
+    {
+        if (config('queue.default') === 'sync' || app()->runningUnitTests()) {
+            GeneratePayslipArchive::dispatch($exportId);
+
+            return;
+        }
+
+        if (app()->environment('production')) {
+            GeneratePayslipArchive::dispatch($exportId);
+
+            return;
+        }
+
+        // ローカル/検証環境（database 接続・worker 非常駐想定）はその場で完了させる。
+        try {
+            GeneratePayslipArchive::dispatchSync($exportId);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** ポーリング用: 出力ジョブの最新状態をJSONで返す。 */
