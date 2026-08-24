@@ -6,6 +6,8 @@ import { useState } from 'react';
 interface DepartmentRow {
     id: number;
     name: string;
+    business_location_id: number | null;
+    business_location_name: string | null;
     sort_order: number;
     users_count: number;
 }
@@ -17,21 +19,29 @@ interface TerminalOption {
     terminal_key: string;
 }
 
+interface BusinessLocationOption {
+    id: number;
+    name: string;
+}
+
 interface Props {
     departments: DepartmentRow[];
+    businessLocations: BusinessLocationOption[];
     terminals: TerminalOption[];
 }
 
-type FormShape = { name: string; sort_order: number };
+type FormShape = { name: string; business_location_id: number | null; sort_order: number };
 
 function DepartmentForm({
     initial,
+    businessLocations,
     onSubmit,
     submitLabel,
     processing,
     onCancel,
 }: {
     initial: FormShape;
+    businessLocations: BusinessLocationOption[];
     onSubmit: (data: FormShape) => void;
     submitLabel: string;
     processing: boolean;
@@ -53,6 +63,18 @@ function DepartmentForm({
                     <input type="number" min={0} value={data.sort_order} onChange={(e) => set('sort_order', Number(e.target.value))}
                         className="w-full rounded-lg border-gray-300 text-right text-sm focus:border-teal-500 focus:ring-teal-500" />
                 </div>
+                <div className="sm:col-span-12">
+                    <label className="mb-1 block text-xs font-medium text-gray-500">所属事業所</label>
+                    <select value={data.business_location_id ?? ''}
+                        onChange={(e) => set('business_location_id', e.target.value === '' ? null : Number(e.target.value))}
+                        className="w-full rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500">
+                        <option value="">未設定</option>
+                        {businessLocations.map((b) => (
+                            <option key={b.id} value={b.id}>{b.name}</option>
+                        ))}
+                    </select>
+                    <p className="mt-1 text-[11px] text-gray-400">保険・労働保険の帰属先となる事業所に振り分けます。</p>
+                </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
                 <button type="button" onClick={() => onSubmit(data)} disabled={processing || data.name.trim() === ''}
@@ -70,7 +92,7 @@ function DepartmentForm({
     );
 }
 
-export default function DepartmentsIndex({ departments, terminals }: Props) {
+export default function DepartmentsIndex({ departments, businessLocations, terminals }: Props) {
     const canWrite = useAdminPermission('users');
     const [showAdd, setShowAdd] = useState(false);
     const [editingId, setEditingId] = useState<number | null>(null);
@@ -154,7 +176,8 @@ export default function DepartmentsIndex({ departments, terminals }: Props) {
                     {showAdd && canWrite && (
                         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
                             <h3 className="mb-4 text-sm font-bold text-gray-700">店舗を追加</h3>
-                            <DepartmentForm initial={{ name: '', sort_order: departments.length }} onSubmit={create}
+                            <DepartmentForm initial={{ name: '', business_location_id: null, sort_order: departments.length }}
+                                businessLocations={businessLocations} onSubmit={create}
                                 submitLabel="追加" processing={addForm.processing} onCancel={() => setShowAdd(false)} />
                         </div>
                     )}
@@ -163,7 +186,8 @@ export default function DepartmentsIndex({ departments, terminals }: Props) {
                         {departments.map((d) => (
                             <div key={d.id} className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
                                 {editingId === d.id ? (
-                                    <DepartmentForm initial={{ name: d.name, sort_order: d.sort_order }}
+                                    <DepartmentForm initial={{ name: d.name, business_location_id: d.business_location_id, sort_order: d.sort_order }}
+                                        businessLocations={businessLocations}
                                         onSubmit={(data) => update(d.id, data)} submitLabel="更新" processing={editForm.processing}
                                         onCancel={() => setEditingId(null)} />
                                 ) : (
@@ -176,6 +200,11 @@ export default function DepartmentsIndex({ departments, terminals }: Props) {
                                                 <div>
                                                     <span className="font-semibold text-gray-800">{d.name}</span>
                                                     <div className="mt-0.5 text-xs text-gray-500">
+                                                        <span className={d.business_location_name ? 'text-teal-600' : 'text-amber-500'}>
+                                                            <i className="fa-solid fa-building mr-1" />
+                                                            {d.business_location_name ?? '事業所未設定'}
+                                                        </span>
+                                                        <span className="mx-1.5 text-gray-300">|</span>
                                                         表示順 {d.sort_order} ・ 所属 {d.users_count} 名
                                                     </div>
                                                 </div>

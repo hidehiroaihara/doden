@@ -39,6 +39,11 @@ class BusinessLocation extends Model
         return $this->hasMany(InsuranceRateSet::class);
     }
 
+    public function departments(): HasMany
+    {
+        return $this->hasMany(Department::class);
+    }
+
     public function employeePayrolls(): HasMany
     {
         return $this->hasMany(EmployeePayroll::class);

@@ -35,6 +35,15 @@ CURR_COMMIT=$(git rev-parse HEAD)
 PREV_COMMIT=$(cat "$LAST_COMMIT_FILE" 2>/dev/null || echo "")
 
 # ----------------------------------------------------------
+# 書き込み権限（composer / artisan より前に確保）
+# deploy が composer 実行 → storage / bootstrap/cache に書くため。
+# PHP-FPM (www-data) もグループ経由で書けるよう deploy:www-data + 775。
+# ----------------------------------------------------------
+echo "[権限] storage / bootstrap/cache を調整..."
+sudo chown -R deploy:www-data "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+sudo chmod -R ug+rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+
+# ----------------------------------------------------------
 # 2) PHP 依存パッケージ（composer.json/lock 変更時のみ）
 # ----------------------------------------------------------
 COMPOSER_CHANGED=$(git diff --name-only "$PREV_COMMIT" "$CURR_COMMIT" 2>/dev/null | grep -E '^composer\.(json|lock)$' || true)
@@ -87,10 +96,11 @@ $PHP_BIN artisan route:cache
 $PHP_BIN artisan view:cache
 
 # ----------------------------------------------------------
-# 7) 書き込み権限（storage / bootstrap-cache を PHP-FPM 用に）
+# 7) 書き込み権限（PHP-FPM が引き続き書けるようグループ権限を維持）
 # ----------------------------------------------------------
 echo "[6/7] 権限調整..."
-sudo chown -R www-data:www-data "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+sudo chown -R deploy:www-data "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
+sudo chmod -R ug+rwx "$APP_DIR/storage" "$APP_DIR/bootstrap/cache"
 
 # ----------------------------------------------------------
 # 8) queue worker 再起動（新コード反映）

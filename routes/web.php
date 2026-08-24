@@ -57,7 +57,11 @@ Route::middleware(['restrict.ip', 'check.terminal'])->group(function () {
         ]);
     };
 
-    Route::get('/', fn () => $renderPunchScreen())->name('home');
+    // トップ（全店舗の打刻画面）は現在使用しない。店舗別 URL /store/{店舗} のみ運用。
+    // 全店・本社などで全体表示が必要になったら、下記 abort(404) を
+    //   fn () => $renderPunchScreen()
+    // に戻すだけで復活できる（route('home') 参照箇所を壊さないよう name は維持）。
+    Route::get('/', fn () => abort(404))->name('home');
 
     // 店舗ごとの専用打刻画面（店舗ごとに固定URLを端末へ割り当てる用途）
     Route::get('/store/{department}', fn (Department $department) => $renderPunchScreen($department))->name('home.store');
