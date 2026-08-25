@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\BusinessLocation;
 use App\Models\ClosingDateGroup;
+use App\Models\Department;
 use App\Models\InsuranceRate;
 use App\Models\InsuranceRateSet;
 use App\Models\User;
@@ -16,11 +17,12 @@ use Illuminate\Support\Str;
 /**
  * 株式会社ナカザワ 初期データ投入シーダー。
  *
- *   - 事業所（本社＋各店舗）と社会保険・労働保険の料率セット（全事業所共通）
+ *   - 事業所（本社＋各店舗）と社会保険・労働保険の料率セット（本社のみ）
+ *   - 部門（店舗）を事業所（店舗マスタ）に紐付け
  *   - 従業員（CSV: database/seeders/data/nakazawa_employees.csv）
  *
- * 従業員は「部門」列の店舗を所属事業所(business_location)へ割当。
- * 退職年月日があれば is_active=false（一覧では初期非表示）。
+ * 従業員の所属事業所(business_location)は全員本社。店舗区分は users.department_id（部門）で管理。
+ * CSV「部門」列 → 部門（店舗）。空欄は本社部門。複合(北浦和・大宮)は先頭を採用。
  *
  * ⚠ 既存の従業員データを全削除して置き換える（初期セットアップ用）。
  *
@@ -66,12 +68,14 @@ class NakazawaInitialSeeder extends Seeder
         DB::transaction(function () {
             $this->clearEmployees();
             $locations = $this->seedLocations();
+            $departments = $this->seedDepartments($locations);
             $this->seedRateSets($locations);
-            $created = $this->seedEmployees($locations);
+            $created = $this->seedEmployees($locations, $departments);
 
             $this->command->info(sprintf(
-                'NakazawaInitialSeeder: 事業所 %d 件 / 従業員 %d 件を投入しました。',
+                'NakazawaInitialSeeder: 事業所 %d 件 / 部門 %d 件 / 従業員 %d 件を投入しました。',
                 count($locations),
+                count($departments),
                 $created,
             ));
         });
@@ -86,7 +90,7 @@ class NakazawaInitialSeeder extends Seeder
             'employee_pay_item_values', 'employee_commute_routes', 'employee_dependents',
             'user_status_histories', 'employee_leaves', 'year_end_adjustments',
             'employee_payrolls', 'users',
-            'insurance_rates', 'insurance_rate_sets', 'business_locations',
+            'insurance_rates', 'insurance_rate_sets', 'departments', 'business_locations',
         ];
 
         Schema::disableForeignKeyConstraints();
@@ -141,24 +145,57 @@ class NakazawaInitialSeeder extends Seeder
     }
 
     /**
-     * 各事業所に 2026年度 の料率セット（社会保険＋労働保険）を作成。
+     * 部門（店舗）を作成し、対応する店舗事業所へ紐付ける。
+     * 給与・保険の所属事業所は全員本社だが、打刻・勤怠は部門単位で管理する。
+     *
+     * @param  array<string, BusinessLocation>  $locations
+     * @return array<string, Department>
+     */
+    private function seedDepartments(array $locations): array
+    {
+        $map = [];
+
+        $map[self::MAIN] = Department::updateOrCreate(
+            ['name' => self::MAIN],
+            [
+                'business_location_id' => $locations[self::MAIN]->id,
+                'sort_order' => 0,
+            ],
+        );
+
+        foreach (self::STORES as $i => $name) {
+            $map[$name] = Department::updateOrCreate(
+                ['name' => $name],
+                [
+                    'business_location_id' => $locations[$name]->id,
+                    'sort_order' => $i + 1,
+                ],
+            );
+        }
+
+        return $map;
+    }
+
+    /**
+     * 本社に 2026年度 の料率セット（社会保険＋労働保険）を作成。
+     * 保険・労働保険は本社事業所に一本化（従業員の所属事業所も本社）。
      *
      * @param  array<string, BusinessLocation>  $locations
      */
     private function seedRateSets(array $locations): void
     {
-        foreach ($locations as $name => $loc) {
-            $set = InsuranceRateSet::updateOrCreate(
-                ['business_location_id' => $loc->id, 'effective_from' => '2026-04-01'],
-                ['name' => '2026年度 '.$name, 'effective_to' => null],
-            );
+        $main = $locations[self::MAIN];
 
-            foreach (self::RATES as [$kind, $emp, $empr]) {
-                InsuranceRate::updateOrCreate(
-                    ['insurance_rate_set_id' => $set->id, 'kind' => $kind],
-                    ['employee_rate' => $emp, 'employer_rate' => $empr],
-                );
-            }
+        $set = InsuranceRateSet::updateOrCreate(
+            ['business_location_id' => $main->id, 'effective_from' => '2026-04-01'],
+            ['name' => '2026年度 '.self::MAIN, 'effective_to' => null],
+        );
+
+        foreach (self::RATES as [$kind, $emp, $empr]) {
+            InsuranceRate::updateOrCreate(
+                ['insurance_rate_set_id' => $set->id, 'kind' => $kind],
+                ['employee_rate' => $emp, 'employer_rate' => $empr],
+            );
         }
     }
 
@@ -166,10 +203,12 @@ class NakazawaInitialSeeder extends Seeder
      * CSVから従業員を投入。
      *
      * @param  array<string, BusinessLocation>  $locations
+     * @param  array<string, Department>  $departments
      */
-    private function seedEmployees(array $locations): int
+    private function seedEmployees(array $locations, array $departments): int
     {
         $closingGroupId = ClosingDateGroup::orderBy('sort_order')->value('id');
+        $mainLocation = $locations[self::MAIN];
 
         $rows = $this->readCsv();
         $created = 0;
@@ -182,6 +221,8 @@ class NakazawaInitialSeeder extends Seeder
             $retirementDate = $this->parseDate($r['retirement_date'] ?? '');
             $isActive = $retirementDate === null;
 
+            $department = $this->resolveDepartment($r['department'] ?? '', $departments);
+
             $user = User::create([
                 'last_name' => $r['last_name'] ?? '',
                 'first_name' => $r['first_name'] ?? null,
@@ -189,6 +230,7 @@ class NakazawaInitialSeeder extends Seeder
                 'first_name_kana' => $r['first_name_kana'] ?: null,
                 'gender' => $this->mapGender($r['gender'] ?? ''),
                 'customer_no' => $r['employee_no'] ?: null,
+                'department_id' => $department?->id,
                 'joined_at' => $this->parseDate($r['joined_at'] ?? ''),
                 'retirement_date' => $retirementDate,
                 'retirement_type' => $this->mapRetirementType($r['retirement_type'] ?? ''),
@@ -198,10 +240,8 @@ class NakazawaInitialSeeder extends Seeder
                 'password' => Str::password(32),
             ]);
 
-            $location = $this->resolveLocation($r['department'] ?? '', $locations);
-
             $user->employeePayroll()->create([
-                'business_location_id' => $location?->id,
+                'business_location_id' => $mainLocation->id,
                 'closing_date_group_id' => $closingGroupId,
                 'employee_no' => $r['employee_no'] ?: null,
                 'employment_type' => $this->mapEmploymentType($r['contract'] ?? ''),
@@ -216,21 +256,21 @@ class NakazawaInitialSeeder extends Seeder
     }
 
     /**
-     * 「部門」列 → 所属事業所。空欄は本社。複合(北浦和・大宮)は先頭を採用。
+     * 「部門」列 → 部門（店舗）。空欄は本社。複合(北浦和・大宮)は先頭を採用。
      *
-     * @param  array<string, BusinessLocation>  $locations
+     * @param  array<string, Department>  $departments
      */
-    private function resolveLocation(string $dept, array $locations): ?BusinessLocation
+    private function resolveDepartment(string $dept, array $departments): ?Department
     {
         $dept = trim($dept);
         if ($dept === '') {
-            return $locations[self::MAIN] ?? null;
+            return $departments[self::MAIN] ?? null;
         }
 
         $first = preg_split('/[・,、]/u', $dept)[0] ?? $dept;
         $first = trim($first);
 
-        return $locations[$first] ?? $locations[self::MAIN] ?? null;
+        return $departments[$first] ?? $departments[self::MAIN] ?? null;
     }
 
     /** @return list<array<string, string>> */

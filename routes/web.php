@@ -19,23 +19,16 @@ Route::middleware(['punch.access'])->group(function () {
 
         // is_active=true かつ joined_at が今日以前（または null）のユーザーのみ表示
         $today = Carbon::today()->toDateString();
-        // 店舗に事業所が紐付いていれば、その事業所所属メンバーを打刻対象にする。
-        $businessLocationId = $department?->business_location_id;
         $query = User::where('is_active', true)
             ->where(function ($q) use ($today) {
                 $q->whereNull('joined_at')->orWhere('joined_at', '<=', $today);
             })
             ->orderBy('name');
 
-        // 店舗別画面のメンバー抽出:
-        //   事業所紐付けあり → 紐付けた事業所（employee_payrolls.business_location_id）のメンバー
-        //   事業所紐付けなし → 従来どおり所属店舗（department_id）のメンバー
+        // 店舗別画面: 所属部門（店舗）でメンバーを絞り込む。
+        // 給与の所属事業所は全員本社でも、打刻・勤怠は部門単位で管理する。
         if ($department) {
-            if ($businessLocationId) {
-                $query->whereHas('employeePayroll', fn ($q) => $q->where('business_location_id', $businessLocationId));
-            } else {
-                $query->where('department_id', $department->id);
-            }
+            $query->where('department_id', $department->id);
         }
 
         if ($useDepartment) {
@@ -51,13 +44,9 @@ Route::middleware(['punch.access'])->group(function () {
             ->where('work_date', $today)
             ->orderBy('clock_in_at');
 
-        // 当日打刻もメンバー抽出と同じ条件（事業所紐付けの有無）で絞り込む
+        // 当日打刻も店舗別画面と同じく部門で絞り込む
         if ($department) {
-            if ($businessLocationId) {
-                $attendanceQuery->whereHas('user.employeePayroll', fn ($q) => $q->where('business_location_id', $businessLocationId));
-            } else {
-                $attendanceQuery->whereHas('user', fn ($q) => $q->where('department_id', $department->id));
-            }
+            $attendanceQuery->whereHas('user', fn ($q) => $q->where('department_id', $department->id));
         }
 
         return Inertia::render('Welcome', [
