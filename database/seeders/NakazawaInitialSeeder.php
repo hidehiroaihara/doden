@@ -51,6 +51,7 @@ class NakazawaInitialSeeder extends Seeder
         'accident_industry_code' => 'wholesale_retail_food_lodging', // 卸売業・小売業、飲食店又は宿泊業
         'employment_industry_type' => 'general',                     // 一般の事業
         'labor_bureau' => '荒川 労働基準監督署',
+        'employment_bureau' => '荒川 ハローワーク（公共職業安定所）',
         'accident_business_desc' => '飲食店',
     ];
 
@@ -113,6 +114,11 @@ class NakazawaInitialSeeder extends Seeder
                 'health_insurance_type' => 'kyokai',
                 'prefecture' => '東京都',
                 'labor_insurance_number' => '13312962420-256',
+                'labor_insurance_pref_code' => '13',
+                'labor_insurance_jurisdiction_code' => '3',
+                'labor_insurance_office_code' => '12',
+                'labor_insurance_serial_number' => '962420',
+                'labor_insurance_branch_code' => '256',
                 'employment_office_number' => '11316270614',
                 'note' => 'TEL 048-607-1129',
                 'sort_order' => 0,

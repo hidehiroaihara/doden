@@ -325,6 +325,15 @@ class PayrollCalculator
                     $socialTotal += $amount;
                     break;
 
+                case 'pension_fund':
+                    // 厚生年金基金掛金（従業員負担）= 標準報酬月額(厚年) × 給与掛金料率（全基金合算）。
+                    // 料率未設定(0)なら0円。MFクラウド準拠で掛金料率のみで自動計算する。
+                    if ($employee->is_social_insurance_enrolled) {
+                        $amount = $this->pensionFundEmployee($employee, $effectiveDate, $stdPension, 'salary');
+                    }
+                    $socialTotal += $amount;
+                    break;
+
                 case 'employment_insurance':
                     if ($employee->is_employment_insurance_enrolled) {
                         $amount = $this->insuranceEmployeeOnBase($rateSet, 'employment', $laborInsuranceTarget);
@@ -623,6 +632,25 @@ class PayrollCalculator
         }
 
         return max(0, $total);
+    }
+
+    /**
+     * 厚生年金基金掛金（従業員負担）を全基金合算で算出する。
+     * $payKind: 'salary'(給与) / 'bonus'(賞与)。
+     */
+    private function pensionFundEmployee(EmployeePayroll $employee, string $effectiveDate, int $standardReward, string $payKind): int
+    {
+        if ($standardReward <= 0) {
+            return 0;
+        }
+
+        $funds = $employee->businessLocation?->pensionFunds()->with('rates')->get() ?? collect();
+        $rate = \App\Models\PensionFund::totalRates($funds, $effectiveDate, $payKind)['employee'];
+        if ($rate <= 0) {
+            return 0;
+        }
+
+        return $this->roundYen($standardReward * $rate / 1000, 'round');
     }
 
     private function insuranceEmployee(?InsuranceRateSet $rateSet, string $kind, int $standardReward): int

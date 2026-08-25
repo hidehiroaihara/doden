@@ -95,6 +95,11 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::put('payroll/settings/deduction-items', [PayrollSettingController::class, 'updateDeductionItems'])->name('payroll.settings.deduction-items');
         Route::put('payroll/settings/attendance-items', [PayrollSettingController::class, 'updateAttendanceItems'])->name('payroll.settings.attendance-items');
         Route::put('payroll/settings/insurance-rates', [PayrollSettingController::class, 'updateInsuranceRates'])->name('payroll.settings.insurance-rates');
+        Route::put('payroll/settings/locations/{location}/social-insurance', [PayrollSettingController::class, 'updateSocialInsuranceConfig'])->name('payroll.settings.locations.social-insurance');
+        Route::put('payroll/settings/locations/{location}/labor-insurance', [PayrollSettingController::class, 'updateLaborInsuranceConfig'])->name('payroll.settings.locations.labor-insurance');
+        Route::post('payroll/settings/pension-funds', [PayrollSettingController::class, 'storePensionFund'])->name('payroll.settings.pension-funds.store');
+        Route::put('payroll/settings/pension-funds/{pensionFund}', [PayrollSettingController::class, 'updatePensionFund'])->name('payroll.settings.pension-funds.update');
+        Route::delete('payroll/settings/pension-funds/{pensionFund}', [PayrollSettingController::class, 'destroyPensionFund'])->name('payroll.settings.pension-funds.destroy');
         Route::put('payroll/settings/municipalities', [PayrollSettingController::class, 'updateMunicipalities'])->name('payroll.settings.municipalities');
 
         // 基本設定＞年度設定(se15)
@@ -194,7 +199,10 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
         // 帳票: 賃金台帳
         Route::get('payroll/reports/wage-ledger', [WageLedgerController::class, 'show'])->name('payroll.reports.wage-ledger');
+        Route::get('payroll/reports/wage-ledger/bulk/csv', [WageLedgerController::class, 'bulkCsv'])->name('payroll.reports.wage-ledger.bulk-csv');
+        Route::get('payroll/reports/wage-ledger/bulk/pdf', [WageLedgerController::class, 'bulkPdf'])->name('payroll.reports.wage-ledger.bulk-pdf');
         Route::get('payroll/reports/wage-ledger/{user}/pdf', [WageLedgerController::class, 'pdf'])->name('payroll.reports.wage-ledger.pdf');
+        Route::get('payroll/reports/wage-ledger/{user}/csv', [WageLedgerController::class, 'csv'])->name('payroll.reports.wage-ledger.csv');
 
         // 帳票: 源泉徴収簿
         Route::get('payroll/reports/withholding-book', [WithholdingBookController::class, 'show'])->name('payroll.reports.withholding-book');

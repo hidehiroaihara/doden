@@ -157,4 +157,23 @@ class User extends Authenticatable
     {
         return $this->hasMany(UserStatusHistory::class)->orderByDesc('changed_at');
     }
+
+    /**
+     * 従業員番号（employee_payrolls.employee_no）の自然順で並べる。
+     * "2" < "10"（数値）や "E001" < "E002"（ゼロ埋め）の両方に対応し、未設定は末尾。
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<User>  $query
+     */
+    public function scopeOrderByEmployeeNo($query)
+    {
+        if (empty($query->getQuery()->columns)) {
+            $query->select('users.*');
+        }
+
+        return $query
+            ->leftJoin('employee_payrolls as ep_sort', 'ep_sort.user_id', '=', 'users.id')
+            ->orderByRaw("(ep_sort.employee_no IS NULL OR ep_sort.employee_no = '')")
+            ->orderByRaw('LENGTH(ep_sort.employee_no)')
+            ->orderBy('ep_sort.employee_no');
+    }
 }

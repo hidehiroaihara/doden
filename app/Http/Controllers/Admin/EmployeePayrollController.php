@@ -31,7 +31,7 @@ class EmployeePayrollController extends Controller
                         ->orWhere('customer_no', 'like', "%{$search}%");
                 });
             })
-            ->orderBy('name')
+            ->orderByEmployeeNo()
             ->get()
             ->map(function (User $user) {
                 $ep = $user->employeePayroll;

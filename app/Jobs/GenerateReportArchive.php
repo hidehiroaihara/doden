@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\ReportExport;
 use App\Models\User;
+use App\Services\Payroll\Reports\WageLedgerCsvExporter;
 use App\Services\Payroll\Reports\WageLedgerService;
 use App\Services\Payroll\Reports\WithholdingBookService;
 use App\Services\Payroll\Reports\WithholdingSlipService;
@@ -46,8 +47,12 @@ class GenerateReportArchive implements ShouldQueue
 
     public function __construct(public int $exportId) {}
 
-    public function handle(WithholdingBookService $withholding, WageLedgerService $ledger, WithholdingSlipService $slip): void
-    {
+    public function handle(
+        WithholdingBookService $withholding,
+        WageLedgerService $ledger,
+        WageLedgerCsvExporter $csvExporter,
+        WithholdingSlipService $slip,
+    ): void {
         $export = ReportExport::find($this->exportId);
         if (! $export) {
             return;
@@ -58,7 +63,7 @@ class GenerateReportArchive implements ShouldQueue
         try {
             match ($export->report_type) {
                 'withholding_book' => $this->buildWithholdingZip($export, $withholding),
-                'wage_ledger' => $this->buildWageLedgerCsv($export, $ledger),
+                'wage_ledger' => $this->buildWageLedgerCsv($export, $ledger, $csvExporter),
                 'roster' => $this->buildRosterZip($export),
                 'tax_slip' => $this->buildTaxSlipZip($export, $slip),
                 default => throw new \RuntimeException("未対応の帳票種別: {$export->report_type}"),
@@ -111,8 +116,8 @@ class GenerateReportArchive implements ShouldQueue
                 }
             })
             ->with('employeePayroll:id,user_id,employee_no,employment_type')
-            ->orderByDesc('is_active')
-            ->orderBy('name')
+            ->orderByDesc('users.is_active')
+            ->orderByEmployeeNo()
             ->get();
 
         $this->pdfZip(
@@ -145,7 +150,7 @@ class GenerateReportArchive implements ShouldQueue
                 }
             })
             ->with(['employeePayroll.businessLocation:id,name'])
-            ->orderBy('name')
+            ->orderByEmployeeNo()
             ->get();
 
         $this->pdfZip(
@@ -208,7 +213,7 @@ class GenerateReportArchive implements ShouldQueue
         ]);
     }
 
-    private function buildWageLedgerCsv(ReportExport $export, WageLedgerService $service): void
+    private function buildWageLedgerCsv(ReportExport $export, WageLedgerService $service, WageLedgerCsvExporter $csvExporter): void
     {
         $employees = $service->employeeList($export->business_location_id);
         $export->update(['total_count' => $employees->count()]);
@@ -219,25 +224,12 @@ class GenerateReportArchive implements ShouldQueue
             return;
         }
 
+        $period = $service->resolvePeriod(['period_mode' => 'calendar', 'year' => $export->year]);
         $lines = [];
         $processed = 0;
         foreach ($employees as $emp) {
-            $matrix = $service->build((int) $emp['id'], $export->year, $export->business_location_id);
-
-            $lines[] = $this->csvRow(['従業員', $emp['name'], '従業員番号', $emp['employee_no'] ?? '']);
-            $header = array_merge(['区分', '項目'], array_map(fn ($i) => ($i + 1) . '月度', array_keys($matrix['months'])), ['合計']);
-            $lines[] = $this->csvRow($header);
-
-            foreach ($matrix['sections'] as $section) {
-                foreach ($section['rows'] as $row) {
-                    $cells = [$section['title'], $row['name']];
-                    for ($m = 1; $m <= 12; $m++) {
-                        $cells[] = $row['is_time'] ? number_format((float) ($row['values'][$m] ?? 0), 1) : (int) ($row['values'][$m] ?? 0);
-                    }
-                    $cells[] = $row['is_time'] ? number_format((float) $row['total'], 1) : (int) $row['total'];
-                    $lines[] = $this->csvRow($cells);
-                }
-            }
+            $matrix = $service->build((int) $emp['id'], $period, $export->business_location_id);
+            array_push($lines, ...$csvExporter->employeeBlockLines($matrix));
             $lines[] = '';
 
             $processed++;
@@ -246,10 +238,9 @@ class GenerateReportArchive implements ShouldQueue
             }
         }
 
-        $relativeCsv = 'report_archives/' . Str::uuid()->toString() . '.csv';
+        $relativeCsv = 'report_archives/'.Str::uuid()->toString().'.csv';
         Storage::disk('local')->makeDirectory('report_archives');
-        $content = mb_convert_encoding(implode("\r\n", $lines) . "\r\n", 'SJIS-win', 'UTF-8');
-        Storage::disk('local')->put($relativeCsv, $content);
+        Storage::disk('local')->put($relativeCsv, $csvExporter->encode($lines));
 
         $export->update([
             'status' => 'completed',
@@ -259,11 +250,6 @@ class GenerateReportArchive implements ShouldQueue
             'file_size' => Storage::disk('local')->size($relativeCsv),
             'completed_at' => now(),
         ]);
-    }
-
-    private function csvRow(array $cells): string
-    {
-        return implode(',', array_map(fn ($v) => '"' . str_replace('"', '""', (string) $v) . '"', $cells));
     }
 
     private function dirName(?string $name, ?string $employeeNo): string

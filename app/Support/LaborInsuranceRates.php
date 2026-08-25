@@ -2,22 +2,65 @@
 
 namespace App\Support;
 
+use Illuminate\Support\Carbon;
+
 /**
- * 労働保険（労災・雇用）の業種別料率プリセット。
+ * 労働保険（労災・雇用）の業種別料率プリセット（MFクラウド給与準拠）。
  *
  * 料率はすべて千分率（‰ = /1,000）で保持する。
  * 労災保険料率は事業主全額負担（従業員負担なし）。
- * 雇用保険料率は従業員負担・事業主負担の2本立て。
+ * 雇用保険料率は従業員負担・事業主負担の2本立てで、労働保険年度（4月〜翌3月）ごとに改定される。
  *
- * ※改定時は本ファイルの値を更新するか、事業所ごとに手修正する運用。
- *   代表的な業種のみ収録し、該当がない場合は "other"（手入力）を選択する。
+ * 雇用保険料率は年度別に保持し、対象日（＝料率セットの適用開始日）から労働保険年度を判定して
+ * 当時の料率を返す。未収録の将来年度は「収録済みの最新年度」へフォールバックする。
+ *
+ * ※改定時は EMPLOYMENT_RATES_BY_YEAR に年度を追記する運用。
  */
 class LaborInsuranceRates
 {
     /**
+     * 雇用保険：事業区分コード => ラベル。
+     *
+     * @var array<string, string>
+     */
+    private const EMPLOYMENT_LABELS = [
+        'general' => '一般の事業',
+        'agri_sake_forestry' => '農林水産・清酒製造の事業',
+        'construction' => '建設の事業',
+    ];
+
+    /**
+     * 雇用保険：労働保険年度(開始西暦) => 区分コード => [従業員負担(/1,000), 事業主負担(/1,000)]。
+     *
+     * 出典: 厚生労働省「雇用保険料率のご案内」（令和6〜8年度）。
+     *
+     * @var array<int, array<string, array{0: float, 1: float}>>
+     */
+    private const EMPLOYMENT_RATES_BY_YEAR = [
+        // 令和6年度（2024/4〜2025/3）
+        2024 => [
+            'general' => [6.0, 9.5],
+            'agri_sake_forestry' => [7.0, 10.5],
+            'construction' => [7.0, 11.5],
+        ],
+        // 令和7年度（2025/4〜2026/3）
+        2025 => [
+            'general' => [5.5, 9.0],
+            'agri_sake_forestry' => [6.5, 10.0],
+            'construction' => [6.5, 11.0],
+        ],
+        // 令和8年度（2026/4〜2027/3）
+        2026 => [
+            'general' => [5.0, 8.5],
+            'agri_sake_forestry' => [6.0, 9.5],
+            'construction' => [6.0, 10.5],
+        ],
+    ];
+
+    /**
      * 労災保険：業種コード => [ラベル, 事業主料率(/1,000)]。
      *
-     * 参考: 令和6年度 労災保険率表の代表業種抜粋。
+     * 参考: 令和6年度（2024/4改定、令和8年度まで据置）労災保険率表の代表業種。
      *
      * @return array<string, array{label: string, employer: float}>
      */
@@ -43,19 +86,20 @@ class LaborInsuranceRates
     }
 
     /**
-     * 雇用保険：区分コード => [ラベル, 従業員料率(/1,000), 事業主料率(/1,000)]。
-     *
-     * 参考: 令和6年度 雇用保険料率。
+     * 対象日の雇用保険：区分コード => [ラベル, 従業員料率(/1,000), 事業主料率(/1,000)]。
      *
      * @return array<string, array{label: string, employee: float, employer: float}>
      */
-    public static function employmentIndustries(): array
+    public static function employmentIndustries(?string $date = null): array
     {
-        return [
-            'general' => ['label' => '一般の事業', 'employee' => 6.0, 'employer' => 9.5],
-            'agri_sake_forestry' => ['label' => '農林水産・清酒製造の事業', 'employee' => 7.0, 'employer' => 10.5],
-            'construction' => ['label' => '建設の事業', 'employee' => 7.0, 'employer' => 11.5],
-        ];
+        $table = static::employmentTableForYear(static::laborYear($date));
+        $result = [];
+        foreach (static::EMPLOYMENT_LABELS as $code => $label) {
+            $row = $table[$code] ?? [0.0, 0.0];
+            $result[$code] = ['label' => $label, 'employee' => $row[0], 'employer' => $row[1]];
+        }
+
+        return $result;
     }
 
     /** 労災業種のラベルマップ（フロント options 用）。@return array<string, string> */
@@ -67,7 +111,7 @@ class LaborInsuranceRates
     /** 雇用区分のラベルマップ（フロント options 用）。@return array<string, string> */
     public static function employmentIndustryLabels(): array
     {
-        return array_map(fn ($v) => $v['label'], static::employmentIndustries());
+        return static::EMPLOYMENT_LABELS;
     }
 
     /** 指定した労災業種の事業主料率(/1,000)。未定義は0。 */
@@ -77,17 +121,49 @@ class LaborInsuranceRates
     }
 
     /**
-     * 指定した雇用区分の従業員/事業主料率(/1,000)。未定義は0。
+     * 指定した雇用区分の従業員/事業主料率(/1,000)。対象日から労働保険年度を判定する。未定義は0。
      *
      * @return array{employee: float, employer: float}
      */
-    public static function employmentRates(?string $code): array
+    public static function employmentRates(?string $code, ?string $date = null): array
     {
-        $row = static::employmentIndustries()[$code] ?? null;
+        $table = static::employmentTableForYear(static::laborYear($date));
+        $row = $table[$code] ?? null;
 
         return [
-            'employee' => $row['employee'] ?? 0.0,
-            'employer' => $row['employer'] ?? 0.0,
+            'employee' => $row[0] ?? 0.0,
+            'employer' => $row[1] ?? 0.0,
         ];
+    }
+
+    /**
+     * 対象日が属する労働保険年度（4月始まり）の開始西暦を返す。未指定は本日。
+     */
+    public static function laborYear(?string $date = null): int
+    {
+        $d = $date ? Carbon::parse($date) : Carbon::now();
+
+        return $d->month >= 4 ? $d->year : $d->year - 1;
+    }
+
+    /**
+     * 指定年度の雇用保険料率表を返す。未収録なら「その年度以下で最も新しい年度」、
+     * それも無ければ最古年度へフォールバックする。
+     *
+     * @return array<string, array{0: float, 1: float}>
+     */
+    private static function employmentTableForYear(int $year): array
+    {
+        $years = array_keys(static::EMPLOYMENT_RATES_BY_YEAR);
+        sort($years);
+
+        $chosen = $years[0];
+        foreach ($years as $y) {
+            if ($y <= $year) {
+                $chosen = $y;
+            }
+        }
+
+        return static::EMPLOYMENT_RATES_BY_YEAR[$chosen];
     }
 }

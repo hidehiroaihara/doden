@@ -5,6 +5,7 @@ namespace Database\Seeders;
 use App\Models\Attendance;
 use App\Models\User;
 use Carbon\Carbon;
+use Database\Seeders\Support\VariedAttendanceSlots;
 use Illuminate\Database\Seeder;
 
 /**
@@ -28,28 +29,6 @@ class NakazawaAttendanceSeeder extends Seeder
 
     /** 当日は出勤のみ（退勤打刻テスト用） */
     private const PUNCH_IN_ONLY_TODAY = ['10'];
-
-    /**
-     * アルバイト・パートの固定シフト（曜日＝Carbon::MONDAY 等）。
-     *
-     * @var array<string, array{days: list<int>, in: string, out: string, break: int}>
-     */
-    private const PART_TIME_SHIFTS = [
-        'lunch_mwf' => ['days' => [Carbon::MONDAY, Carbon::WEDNESDAY, Carbon::FRIDAY], 'in' => '10:00', 'out' => '15:00', 'break' => 0],
-        'lunch_tts' => ['days' => [Carbon::TUESDAY, Carbon::THURSDAY, Carbon::SATURDAY], 'in' => '10:00', 'out' => '15:00', 'break' => 0],
-        'dinner_mwf' => ['days' => [Carbon::MONDAY, Carbon::WEDNESDAY, Carbon::FRIDAY], 'in' => '17:00', 'out' => '22:00', 'break' => 0],
-        'dinner_tts' => ['days' => [Carbon::TUESDAY, Carbon::THURSDAY], 'in' => '17:00', 'out' => '23:00', 'break' => 0],
-        'day_mttf' => ['days' => [Carbon::MONDAY, Carbon::TUESDAY, Carbon::THURSDAY, Carbon::FRIDAY], 'in' => '10:00', 'out' => '18:00', 'break' => 60],
-        'day_wfs' => ['days' => [Carbon::WEDNESDAY, Carbon::FRIDAY, Carbon::SATURDAY], 'in' => '11:00', 'out' => '19:00', 'break' => 60],
-        'day_tts' => ['days' => [Carbon::TUESDAY, Carbon::THURSDAY, Carbon::SATURDAY], 'in' => '10:00', 'out' => '18:00', 'break' => 60],
-        'weekend_ss' => ['days' => [Carbon::SATURDAY, Carbon::SUNDAY], 'in' => '10:00', 'out' => '18:00', 'break' => 60],
-    ];
-
-    /** @var list<string> */
-    private const PART_TIME_SHIFT_KEYS = [
-        'lunch_mwf', 'lunch_tts', 'dinner_mwf', 'dinner_tts',
-        'day_mttf', 'day_wfs', 'day_tts', 'weekend_ss',
-    ];
 
     public function run(): void
     {
@@ -142,17 +121,7 @@ class NakazawaAttendanceSeeder extends Seeder
 
     private function patternLabel(User $user, string $employmentType): string
     {
-        if ($employmentType === 'full_time') {
-            return '正社員';
-        }
-
-        if ($employmentType === 'part_time') {
-            return 'パート固定';
-        }
-
-        $idx = $this->partTimeIndex($user);
-
-        return self::PART_TIME_SHIFT_KEYS[$idx % count(self::PART_TIME_SHIFT_KEYS)];
+        return VariedAttendanceSlots::patternLabel($user, $employmentType);
     }
 
     /**
@@ -160,93 +129,7 @@ class NakazawaAttendanceSeeder extends Seeder
      */
     private function resolveSlot(User $user, string $employmentType, string $customerNo, string $date): ?array
     {
-        $carbon = Carbon::parse($date);
-        $dow = $carbon->dayOfWeek;
-
-        if ($employmentType === 'full_time') {
-            return $this->fullTimeSlot($customerNo, $dow, $carbon);
-        }
-
-        return $this->partTimeSlot($user, $customerNo, $dow, $carbon);
-    }
-
-    /**
-     * @return array{in: string, out: string, break: int}|null
-     */
-    private function fullTimeSlot(string $customerNo, int $dow, Carbon $date): ?array
-    {
-        // 平日（月〜金）: 基本 9:00-18:00
-        if ($dow >= Carbon::MONDAY && $dow <= Carbon::FRIDAY) {
-            return match ($customerNo) {
-                '4' => ($dow === Carbon::TUESDAY || $dow === Carbon::THURSDAY)
-                    ? ['in' => '09:00', 'out' => '21:00', 'break' => 60]
-                    : ['in' => '09:00', 'out' => '18:00', 'break' => 60],
-                '8' => ($dow === Carbon::MONDAY && $date->weekOfMonth % 2 === 1)
-                    ? ['in' => '18:00', 'out' => '02:00', 'break' => 60]
-                    : ['in' => '09:00', 'out' => '18:00', 'break' => 60],
-                '5' => ($dow === Carbon::FRIDAY && $date->weekOfMonth % 2 === 0)
-                    ? ['in' => '18:00', 'out' => '02:00', 'break' => 60]
-                    : ['in' => '09:00', 'out' => '18:00', 'break' => 60],
-                default => ['in' => '09:00', 'out' => '18:00', 'break' => 60],
-            };
-        }
-
-        // 土曜（所定休日）
-        if ($dow === Carbon::SATURDAY && in_array($customerNo, ['4', '8', '10'], true)) {
-            return ['in' => '10:00', 'out' => '18:00', 'break' => 60];
-        }
-
-        // 日曜（法定休日）
-        if ($dow === Carbon::SUNDAY && in_array($customerNo, ['8', '3'], true)) {
-            return ['in' => '10:00', 'out' => '17:00', 'break' => 60];
-        }
-
-        return null;
-    }
-
-    /**
-     * @return array{in: string, out: string, break: int}|null
-     */
-    private function partTimeSlot(User $user, string $customerNo, int $dow, Carbon $date): ?array
-    {
-        $shiftKey = self::PART_TIME_SHIFT_KEYS[$this->partTimeIndex($user) % count(self::PART_TIME_SHIFT_KEYS)];
-        $shift = self::PART_TIME_SHIFTS[$shiftKey];
-
-        if (in_array($dow, $shift['days'], true)) {
-            return ['in' => $shift['in'], 'out' => $shift['out'], 'break' => $shift['break']];
-        }
-
-        // 追加パターン（深夜・休日出勤）: customer_no 末尾で分散
-        $variant = (int) preg_replace('/\D/', '', $customerNo) ?: $user->id;
-
-        // 隔週土曜（所定休日）— 基本シフトに土曜が無い人向け
-        if ($dow === Carbon::SATURDAY && $variant % 5 === 0 && ! in_array(Carbon::SATURDAY, $shift['days'], true)) {
-            return ['in' => '10:00', 'out' => '18:00', 'break' => 60];
-        }
-
-        // 隔週日曜（法定休日）
-        if ($dow === Carbon::SUNDAY && $variant % 7 === 0) {
-            return ['in' => '10:00', 'out' => '17:00', 'break' => 60];
-        }
-
-        // 水曜夜勤（隔週）
-        if ($dow === Carbon::WEDNESDAY && $variant % 6 === 1 && $date->weekOfMonth % 2 === 1) {
-            return ['in' => '22:00', 'out' => '06:00', 'break' => 60];
-        }
-
-        // 金曜深夜残業（ディナーシフト系）
-        if ($dow === Carbon::FRIDAY && str_starts_with($shiftKey, 'dinner') && $variant % 4 === 0) {
-            return ['in' => '17:00', 'out' => '01:00', 'break' => 0];
-        }
-
-        return null;
-    }
-
-    private function partTimeIndex(User $user): int
-    {
-        $no = (int) preg_replace('/\D/', '', (string) $user->customer_no);
-
-        return $no > 0 ? $no : $user->id;
+        return VariedAttendanceSlots::resolve($user, $employmentType, $date);
     }
 
     private function isBeforeJoin(User $user, string $date): bool

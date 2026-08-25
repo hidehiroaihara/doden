@@ -612,18 +612,21 @@ class UserController extends Controller
     /** 一覧の並び順を会社設定に従って適用 */
     private function applySort($query): void
     {
-        $key = Setting::getValue('employee_sort_key', 'join_date');
+        $key = Setting::getValue('employee_sort_key', 'employee_no_number');
         $dir = Setting::getValue('employee_sort_direction', 'asc') === 'desc' ? 'desc' : 'asc';
 
         switch ($key) {
-            case 'employee_no_text':
-            case 'employee_no_number':
-                // employee_no は employeePayroll 側。ここでは name フォールバックのみ（表示時にPHP側で調整しない）。
+            case 'name':
                 $query->orderBy('name', $dir);
                 break;
             case 'join_date':
-            default:
                 $query->orderBy('joined_at', $dir)->orderBy('name');
+                break;
+            case 'employee_no_text':
+            case 'employee_no_number':
+            default:
+                // 従業員番号（employee_payrolls.employee_no）の自然順。未設定は末尾。
+                $query->orderByEmployeeNo();
                 break;
         }
     }

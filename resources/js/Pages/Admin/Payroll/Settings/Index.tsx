@@ -98,6 +98,24 @@ interface RateSet {
     rates: RateRow[];
 }
 
+interface PensionFundRateRow {
+    id: number;
+    effective_from: string;
+    salary_employee_rate: string;
+    salary_employer_rate: string;
+    bonus_employee_rate: string;
+    bonus_employer_rate: string;
+}
+
+interface PensionFundRow {
+    id: number;
+    name: string;
+    number: string | null;
+    office_number: string | null;
+    sort_order: number;
+    rates: PensionFundRateRow[];
+}
+
 interface Location {
     id: number;
     name: string;
@@ -105,11 +123,27 @@ interface Location {
     is_main: boolean;
     health_insurance_type: string;
     prefecture: string | null;
+    health_union_name: string | null;
+    health_office_symbol: string | null;
+    pension_jurisdiction: string | null;
+    pension_office_number: string | null;
+    pension_office_symbol: string | null;
+    pension_fund_name: string | null;
+    pension_fund_number: string | null;
+    pension_fund_office_number: string | null;
     labor_insurance_number: string | null;
+    labor_insurance_pref_code: string | null;
+    labor_insurance_jurisdiction_code: string | null;
+    labor_insurance_office_code: string | null;
+    labor_insurance_serial_number: string | null;
+    labor_insurance_branch_code: string | null;
     office_number: string | null;
     accident_industry_code: string | null;
+    accident_merit_enabled: boolean;
+    accident_merit_rate: string | null;
     employment_industry_type: string | null;
     labor_bureau: string | null;
+    employment_bureau: string | null;
     accident_business_desc: string | null;
     employment_office_number: string | null;
     postal_code: string | null;
@@ -117,6 +151,7 @@ interface Location {
     note: string | null;
     sort_order: number;
     insurance_rate_sets: RateSet[];
+    pension_funds: PensionFundRow[];
 }
 
 interface Municipality {
@@ -251,7 +286,8 @@ const TABS: { key: TabKey; label: string }[] = [
     { key: 'work_settings', label: '勤怠設定' },
 ];
 
-const SOCIAL_KINDS = ['health', 'nursing', 'child_support', 'child_contribution', 'pension'];
+const HEALTH_KINDS = ['health', 'nursing', 'child_support'];
+const PENSION_KINDS = ['pension', 'child_contribution'];
 const LABOR_KINDS = ['accident', 'employment'];
 
 const NEEDS_MULTIPLIER = ['allowance_base', 'prev_allowance_base', 'deduction_base', 'prev_deduction_base'];
@@ -990,10 +1026,18 @@ type LocationFormShape = {
     health_insurance_type: string;
     prefecture: string;
     labor_insurance_number: string;
+    labor_insurance_pref_code: string;
+    labor_insurance_jurisdiction_code: string;
+    labor_insurance_office_code: string;
+    labor_insurance_serial_number: string;
+    labor_insurance_branch_code: string;
     office_number: string;
     accident_industry_code: string;
+    accident_merit_enabled: boolean;
+    accident_merit_rate: string;
     employment_industry_type: string;
     labor_bureau: string;
+    employment_bureau: string;
     accident_business_desc: string;
     employment_office_number: string;
     postal_code: string;
@@ -1064,15 +1108,30 @@ function LocationForm({
                 </label>
             </div>
             <div className="sm:col-span-6">
-                <label className={labelClass}>労働保険番号</label>
-                <input value={data.labor_insurance_number} onChange={(e) => set('labor_insurance_number', e.target.value)} className={fieldClass} />
-            </div>
-            <div className="sm:col-span-6">
                 <label className={labelClass}>事業所整理記号/番号</label>
                 <input value={data.office_number} onChange={(e) => set('office_number', e.target.value)} className={fieldClass} />
             </div>
             <div className="sm:col-span-12 border-t border-gray-100 pt-2">
                 <p className="text-xs font-semibold text-gray-600"><i className="fa-solid fa-shield-halved mr-1 text-teal-600" />労働保険（業種を選ぶと料率が自動セットされます）</p>
+            </div>
+            <div className="sm:col-span-12">
+                <label className={labelClass}>労働保険番号（府県・所掌・管轄・基幹番号・枝番号）</label>
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <input value={data.labor_insurance_pref_code} onChange={(e) => set('labor_insurance_pref_code', e.target.value.replace(/\D/g, '').slice(0, 2))}
+                        inputMode="numeric" placeholder="府県" maxLength={2} className={`${fieldClass} w-14 text-center`} />
+                    <span className="text-gray-300">-</span>
+                    <input value={data.labor_insurance_jurisdiction_code} onChange={(e) => set('labor_insurance_jurisdiction_code', e.target.value.replace(/\D/g, '').slice(0, 1))}
+                        inputMode="numeric" placeholder="所掌" maxLength={1} className={`${fieldClass} w-12 text-center`} />
+                    <span className="text-gray-300">-</span>
+                    <input value={data.labor_insurance_office_code} onChange={(e) => set('labor_insurance_office_code', e.target.value.replace(/\D/g, '').slice(0, 2))}
+                        inputMode="numeric" placeholder="管轄" maxLength={2} className={`${fieldClass} w-14 text-center`} />
+                    <span className="text-gray-300">-</span>
+                    <input value={data.labor_insurance_serial_number} onChange={(e) => set('labor_insurance_serial_number', e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        inputMode="numeric" placeholder="基幹番号" maxLength={6} className={`${fieldClass} w-28 text-center`} />
+                    <span className="text-gray-300">-</span>
+                    <input value={data.labor_insurance_branch_code} onChange={(e) => set('labor_insurance_branch_code', e.target.value.replace(/\D/g, '').slice(0, 3))}
+                        inputMode="numeric" placeholder="枝番号" maxLength={3} className={`${fieldClass} w-16 text-center`} />
+                </div>
             </div>
             <div className="sm:col-span-6">
                 <label className={labelClass}>労災保険料率用の業種</label>
@@ -1088,15 +1147,38 @@ function LocationForm({
                     {Object.entries(employmentIndustries).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
             </div>
-            <div className="sm:col-span-4">
-                <label className={labelClass}>管轄労働局/監督署</label>
-                <input value={data.labor_bureau} onChange={(e) => set('labor_bureau', e.target.value)} className={fieldClass} />
+            <div className="sm:col-span-12">
+                <div className="rounded-lg bg-gray-50 px-3 py-2.5">
+                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" checked={data.accident_merit_enabled}
+                            onChange={(e) => set('accident_merit_enabled', e.target.checked)}
+                            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                        労災保険 メリット制（適用あり）
+                    </label>
+                    {data.accident_merit_enabled && (
+                        <div className="mt-2 flex items-center gap-2">
+                            <label className="text-xs text-gray-500">メリット制の労災保険料率</label>
+                            <input value={data.accident_merit_rate}
+                                onChange={(e) => set('accident_merit_rate', e.target.value.replace(/[^0-9.]/g, ''))}
+                                inputMode="decimal" placeholder="例: 2.5" className={`${fieldClass} w-24 text-right`} />
+                            <span className="text-xs text-gray-400">/1,000（事業主負担・業種料率を上書き）</span>
+                        </div>
+                    )}
+                </div>
             </div>
-            <div className="sm:col-span-4">
+            <div className="sm:col-span-6">
+                <label className={labelClass}>労災 管轄（労働基準監督署）</label>
+                <input value={data.labor_bureau} onChange={(e) => set('labor_bureau', e.target.value)} placeholder="例: 荒川 労働基準監督署" className={fieldClass} />
+            </div>
+            <div className="sm:col-span-6">
                 <label className={labelClass}>事業の具体的内容（労災）</label>
-                <input value={data.accident_business_desc} onChange={(e) => set('accident_business_desc', e.target.value)} className={fieldClass} />
+                <input value={data.accident_business_desc} onChange={(e) => set('accident_business_desc', e.target.value)} placeholder="例: 飲食店" className={fieldClass} />
             </div>
-            <div className="sm:col-span-4">
+            <div className="sm:col-span-6">
+                <label className={labelClass}>雇用保険 管轄（ハローワーク）</label>
+                <input value={data.employment_bureau} onChange={(e) => set('employment_bureau', e.target.value)} placeholder="例: 荒川 ハローワーク（公共職業安定所）" className={fieldClass} />
+            </div>
+            <div className="sm:col-span-6">
                 <label className={labelClass}>雇用保険適用事業所番号</label>
                 <input value={data.employment_office_number} onChange={(e) => set('employment_office_number', e.target.value)} className={fieldClass} />
             </div>
@@ -1196,6 +1278,1164 @@ function RateEditorCard({ loc, kinds, options, canWrite, patchRate, deleteRow, s
                     </table>
                 </div>
             )}
+        </div>
+    );
+}
+
+/* ==================== 社会保険タブ（MFクラウド準拠） ==================== */
+
+type RateSetKey = 'business_location_id' | 'name' | 'effective_from' | 'effective_to';
+type RateSetForm = {
+    data: Record<RateSetKey, string>;
+    setData: (key: RateSetKey, value: string) => void;
+    post: (url: string, opts?: Record<string, unknown>) => void;
+    reset: (...fields: RateSetKey[]) => void;
+    processing: boolean;
+};
+
+type SocialSection = 'health' | 'pension';
+
+/** 千分率(/1,000)の表示整形。91.5 / 0.0 / 3.6 のように最低1桁の小数を表示。 */
+function fmtPermille(v: string | number | null | undefined): string {
+    const n = parseFloat(String(v ?? '0'));
+    if (Number.isNaN(n)) return '0.0';
+    return n.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 3 });
+}
+
+function SocialInsuranceTab({ locs, options, canWrite, newRateSet, deleteRow }: {
+    locs: Location[];
+    options: Props['options'];
+    canWrite: boolean;
+    newRateSet: RateSetForm;
+    deleteRow: (url: string, msg: string) => void;
+}) {
+    const [selectedId, setSelectedId] = useState<number | null>(null);
+    const [editSection, setEditSection] = useState<SocialSection | null>(null);
+
+    const loc = locs.find((l) => l.id === selectedId) ?? locs[0] ?? null;
+    const set = loc?.insurance_rate_sets[0];
+    const rateOf = (kind: string) => set?.rates.find((r) => r.kind === kind);
+
+    const sectionHeaderClass = 'flex items-center justify-between border-b border-gray-100 px-4 py-3';
+    const editBtnClass = 'inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50';
+
+    return (
+        <div className="space-y-6">
+            <p className="text-xs text-gray-500">
+                事業所の社会保険（健康保険・厚生年金保険・厚生年金基金）を設定します。保険料率は<span className="font-semibold">/1,000（千分率）</span>で管理し、従業員ごとに標準報酬月額から自動計算されます。労災・雇用の料率は「労働保険」タブで管理します。
+            </p>
+
+            {locs.length === 0 && (
+                <div className={`${cardClass} px-4 py-8 text-center text-sm text-gray-400`}>事業所が登録されていません。先に「事業所」タブで登録してください。</div>
+            )}
+
+            {locs.length > 0 && (
+                <>
+                    {/* 事業所切替（MFの ▽ 相当） */}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <label className="text-xs font-medium text-gray-500">事業所</label>
+                        <select className={`${selectClass} min-w-[220px]`} value={String(loc?.id ?? '')}
+                            onChange={(e) => setSelectedId(Number(e.target.value))}>
+                            {locs.map((l) => (
+                                <option key={l.id} value={String(l.id)}>{l.name}{l.is_main ? '（本社）' : ''}</option>
+                            ))}
+                        </select>
+                        {set && (
+                            <span className="text-xs text-gray-400">
+                                料率セット: {set.name}（{set.effective_from}〜{set.effective_to ?? '現行'}）
+                            </span>
+                        )}
+                    </div>
+
+                    {/* 料率セット未登録時: 追加フォーム */}
+                    {loc && !set && (
+                        <div className={`${cardClass} p-5`}>
+                            <h3 className="mb-1 text-sm font-bold text-amber-600"><i className="fa-solid fa-triangle-exclamation mr-2" />料率セットが未登録です</h3>
+                            <p className="mb-3 text-xs text-gray-500">保険料率を入力するには、まず適用期間（料率セット）を登録してください。</p>
+                            {canWrite && (
+                                <div className="flex flex-wrap items-end gap-3">
+                                    <div className="flex-1 min-w-[160px]">
+                                        <label className="mb-1 block text-xs font-medium text-gray-500">名称</label>
+                                        <input className="w-full rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500"
+                                            value={newRateSet.data.name} onChange={(e) => newRateSet.setData('name', e.target.value)} placeholder="例）2026年度 本社" />
+                                    </div>
+                                    <div><label className="mb-1 block text-xs font-medium text-gray-500">適用開始</label>
+                                        <input type="date" className="rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500"
+                                            value={newRateSet.data.effective_from} onChange={(e) => newRateSet.setData('effective_from', e.target.value)} /></div>
+                                    <div><label className="mb-1 block text-xs font-medium text-gray-500">適用終了(任意)</label>
+                                        <input type="date" className="rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500"
+                                            value={newRateSet.data.effective_to} onChange={(e) => newRateSet.setData('effective_to', e.target.value)} /></div>
+                                    <button
+                                        onClick={() => {
+                                            newRateSet.setData('business_location_id', String(loc.id));
+                                            newRateSet.post(route('admin.payroll.settings.insurance-sets.store'), {
+                                                preserveScroll: true,
+                                                onSuccess: () => newRateSet.reset('name', 'effective_from', 'effective_to'),
+                                            });
+                                        }}
+                                        disabled={newRateSet.processing || newRateSet.data.name.trim() === '' || newRateSet.data.effective_from === ''}
+                                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
+                                        <i className="fa-solid fa-plus" /> 料率セットを追加
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {loc && set && (
+                        <>
+                            {/* 健康保険 */}
+                            <div className={cardClass}>
+                                <div className={sectionHeaderClass}>
+                                    <h3 className="text-sm font-bold text-gray-800">健康保険</h3>
+                                    <div className="flex items-center gap-2">
+                                        {canWrite && loc.health_insurance_type === 'kyokai' && (
+                                            <button
+                                                onClick={() => {
+                                                    if (confirm(`「${loc.prefecture || '未設定'}」の協会けんぽ料率（健保・介護）と、厚生年金・拠出金の標準値をこの料率セットへ反映します。よろしいですか？`)) {
+                                                        router.post(route('admin.payroll.settings.insurance-sets.apply-kyokai', set.id), {}, { preserveScroll: true });
+                                                    }
+                                                }}
+                                                className="rounded-lg border border-teal-200 bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-100"
+                                                title="協会けんぽの都道府県別料率を自動セット">
+                                                <i className="fa-solid fa-wand-magic-sparkles mr-1" />都道府県料率を反映
+                                            </button>
+                                        )}
+                                        {canWrite && (
+                                            <button onClick={() => setEditSection('health')} className={editBtnClass}>
+                                                <i className="fa-solid fa-pen" /> 編集
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="px-4 py-3">
+                                    <dl className="mb-3 flex flex-wrap gap-x-8 gap-y-1 text-xs">
+                                        <div><dt className="inline text-gray-400">管掌区分：</dt><dd className="inline font-medium text-gray-700">{options.healthInsuranceTypes[loc.health_insurance_type] ?? loc.health_insurance_type}</dd></div>
+                                        {loc.health_insurance_type === 'kyokai' && (
+                                            <div><dt className="inline text-gray-400">管轄：</dt><dd className="inline font-medium text-gray-700">{loc.prefecture ?? '未設定'}</dd></div>
+                                        )}
+                                        {loc.health_insurance_type === 'kumiai' && loc.health_union_name && (
+                                            <div><dt className="inline text-gray-400">組合名：</dt><dd className="inline font-medium text-gray-700">{loc.health_union_name}</dd></div>
+                                        )}
+                                        {loc.health_office_symbol && (
+                                            <div><dt className="inline text-gray-400">事業所整理記号：</dt><dd className="inline font-medium text-gray-700">{loc.health_office_symbol}</dd></div>
+                                        )}
+                                    </dl>
+                                    {loc.health_insurance_type === 'kokuho' ? (
+                                        <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">国民健康保険組合の保険料は、従業員情報で固定金額を設定します。</p>
+                                    ) : (
+                                        <RateDisplayTable
+                                            header="保険料率"
+                                            rows={HEALTH_KINDS.map((k) => ({
+                                                label: options.insuranceKinds[k] ?? k,
+                                                employee: rateOf(k)?.employee_rate,
+                                                employer: rateOf(k)?.employer_rate,
+                                            }))}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 厚生年金保険 */}
+                            <div className={cardClass}>
+                                <div className={sectionHeaderClass}>
+                                    <h3 className="text-sm font-bold text-gray-800">厚生年金保険</h3>
+                                    {canWrite && (
+                                        <button onClick={() => setEditSection('pension')} className={editBtnClass}>
+                                            <i className="fa-solid fa-pen" /> 編集
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="px-4 py-3">
+                                    {(loc.pension_jurisdiction || loc.pension_office_number || loc.pension_office_symbol) && (
+                                        <dl className="mb-3 flex flex-wrap gap-x-8 gap-y-1 text-xs">
+                                            {loc.pension_jurisdiction && <div><dt className="inline text-gray-400">管轄：</dt><dd className="inline font-medium text-gray-700">{loc.pension_jurisdiction}</dd></div>}
+                                            {loc.pension_office_number && <div><dt className="inline text-gray-400">事業所番号：</dt><dd className="inline font-medium text-gray-700">{loc.pension_office_number}</dd></div>}
+                                            {loc.pension_office_symbol && <div><dt className="inline text-gray-400">事業所整理番号：</dt><dd className="inline font-medium text-gray-700">{loc.pension_office_symbol}</dd></div>}
+                                        </dl>
+                                    )}
+                                    <PensionRateTable
+                                        pensionEmployee={rateOf('pension')?.employee_rate}
+                                        pensionEmployer={rateOf('pension')?.employer_rate}
+                                        contributionEmployer={rateOf('child_contribution')?.employer_rate}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* 厚生年金基金（複数登録可・給与/賞与別料率） */}
+                            <PensionFundSection loc={loc} canWrite={canWrite} deleteRow={deleteRow} />
+
+                            {canWrite && (
+                                <div className="flex justify-end">
+                                    <button onClick={() => deleteRow(route('admin.payroll.settings.insurance-sets.destroy', set.id), `料率セット「${set.name}」を削除しますか？`)}
+                                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50">
+                                        <i className="fa-solid fa-trash-can" /> この料率セットを削除
+                                    </button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </>
+            )}
+
+            {loc && editSection && (
+                <SocialInsuranceEditModal loc={loc} section={editSection} options={options} onClose={() => setEditSection(null)} />
+            )}
+        </div>
+    );
+}
+
+/** MF準拠: 保険料率の表示テーブル（被保険者負担 / 事業主負担）。 */
+function RateDisplayTable({ header, rows }: {
+    header: string;
+    rows: { label: string; employee: string | null | undefined; employer: string | null | undefined }[];
+}) {
+    return (
+        <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50">
+                    <tr>
+                        <th className={thClass}>{header}</th>
+                        <th className={thClass}>被保険者負担</th>
+                        <th className={thClass}>事業主負担</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {rows.map((r) => (
+                        <tr key={r.label}>
+                            <td className={`${tdClass} font-medium text-gray-800`}>{r.label}</td>
+                            <td className={tdClass}>{fmtPermille(r.employee)}</td>
+                            <td className={tdClass}>{fmtPermille(r.employer)}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+/** MF準拠: 厚生年金保険の料率テーブル（男子/女子/坑内夫 + 子ども・子育て拠出金）。 */
+function PensionRateTable({ pensionEmployee, pensionEmployer, contributionEmployer }: {
+    pensionEmployee: string | null | undefined;
+    pensionEmployer: string | null | undefined;
+    contributionEmployer: string | null | undefined;
+}) {
+    const pensionRows = [
+        { label: '男子(第1種)' },
+        { label: '女子(第2種)' },
+        { label: '坑内夫(第3種)' },
+    ];
+    return (
+        <div className="overflow-x-auto rounded-lg border border-gray-100">
+            <table className="min-w-full divide-y divide-gray-100">
+                <thead className="bg-gray-50">
+                    <tr>
+                        <th className={thClass}>/1,000</th>
+                        <th className={thClass}>被保険者負担</th>
+                        <th className={thClass}>事業主負担</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                    {pensionRows.map((r) => (
+                        <tr key={r.label}>
+                            <td className={`${tdClass} font-medium text-gray-800`}>{r.label}</td>
+                            <td className={tdClass}>{fmtPermille(pensionEmployee)}</td>
+                            <td className={tdClass}>{fmtPermille(pensionEmployer)}</td>
+                        </tr>
+                    ))}
+                    <tr>
+                        <td className={`${tdClass} font-medium text-gray-800`}>子ども・子育て拠出金</td>
+                        <td className={tdClass}>{fmtPermille(0)}</td>
+                        <td className={tdClass}>{fmtPermille(contributionEmployer)}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+/** MF準拠: 社会保険セクションの編集モーダル。 */
+function SocialInsuranceEditModal({ loc, section, options, onClose }: {
+    loc: Location;
+    section: SocialSection;
+    options: Props['options'];
+    onClose: () => void;
+}) {
+    const set = loc.insurance_rate_sets[0];
+    const rateOf = (kind: string) => set?.rates.find((r) => r.kind === kind);
+    const kinds = section === 'health' ? HEALTH_KINDS : PENSION_KINDS;
+
+    const [healthType, setHealthType] = useState(loc.health_insurance_type);
+    const [meta, setMeta] = useState({
+        prefecture: loc.prefecture ?? '',
+        health_union_name: loc.health_union_name ?? '',
+        health_office_symbol: loc.health_office_symbol ?? '',
+        pension_jurisdiction: loc.pension_jurisdiction ?? '',
+        pension_office_number: loc.pension_office_number ?? '',
+        pension_office_symbol: loc.pension_office_symbol ?? '',
+        pension_fund_name: loc.pension_fund_name ?? '',
+        pension_fund_number: loc.pension_fund_number ?? '',
+        pension_fund_office_number: loc.pension_fund_office_number ?? '',
+    });
+    const [rates, setRates] = useState<Record<string, { employee_rate: string; employer_rate: string }>>(() => {
+        const obj: Record<string, { employee_rate: string; employer_rate: string }> = {};
+        kinds.forEach((k) => {
+            const r = rateOf(k);
+            obj[k] = { employee_rate: String(r?.employee_rate ?? '0'), employer_rate: String(r?.employer_rate ?? '0') };
+        });
+        return obj;
+    });
+    const [processing, setProcessing] = useState(false);
+
+    const setMetaField = (k: keyof typeof meta, v: string) => setMeta((m) => ({ ...m, [k]: v }));
+    const setRate = (kind: string, field: 'employee_rate' | 'employer_rate', v: string) =>
+        setRates((prev) => ({ ...prev, [kind]: { ...prev[kind], [field]: v } }));
+
+    const submit = () => {
+        setProcessing(true);
+        const payload: Record<string, unknown> = { section, rates };
+        if (section === 'health') {
+            payload.health_insurance_type = healthType;
+            payload.prefecture = meta.prefecture;
+            payload.health_union_name = meta.health_union_name;
+            payload.health_office_symbol = meta.health_office_symbol;
+        } else if (section === 'pension') {
+            payload.pension_jurisdiction = meta.pension_jurisdiction;
+            payload.pension_office_number = meta.pension_office_number;
+            payload.pension_office_symbol = meta.pension_office_symbol;
+        }
+        router.put(route('admin.payroll.settings.locations.social-insurance', loc.id), payload as never, {
+            preserveScroll: true,
+            onSuccess: onClose,
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const titleMap: Record<SocialSection, string> = { health: '健康保険', pension: '厚生年金保険' };
+    const fieldClass = 'w-full rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500';
+    const labelClass = 'mb-1 block text-xs font-medium text-gray-500';
+    const rateInputClass = 'w-28 rounded-lg border-gray-300 text-sm shadow-sm focus:border-teal-500 focus:ring-teal-500';
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+            <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                    <h3 className="text-sm font-bold text-gray-800">{titleMap[section]}の編集 <span className="ml-2 font-normal text-gray-400">{loc.name}</span></h3>
+                    <button onClick={onClose} className="rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-100"><i className="fa-solid fa-xmark" /></button>
+                </div>
+
+                <div className="space-y-4 px-5 py-4">
+                    {section === 'health' && (
+                        <>
+                            <div>
+                                <label className={labelClass}>管掌区分</label>
+                                <select value={healthType} onChange={(e) => setHealthType(e.target.value)} className={fieldClass}>
+                                    {Object.entries(options.healthInsuranceTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                                </select>
+                            </div>
+                            {healthType === 'kyokai' && (
+                                <div>
+                                    <label className={labelClass}>管轄（都道府県）</label>
+                                    <select value={meta.prefecture} onChange={(e) => setMetaField('prefecture', e.target.value)} className={fieldClass}>
+                                        <option value="">未設定</option>
+                                        {options.prefectures.map((p) => <option key={p} value={p}>{p}</option>)}
+                                    </select>
+                                    <p className="mt-1 text-[11px] text-gray-400">保存後、健康保険セクションの「都道府県料率を反映」で協会けんぽ料率を自動セットできます。</p>
+                                </div>
+                            )}
+                            {healthType === 'kumiai' && (
+                                <div>
+                                    <label className={labelClass}>組合名</label>
+                                    <input value={meta.health_union_name} onChange={(e) => setMetaField('health_union_name', e.target.value)} className={fieldClass} />
+                                </div>
+                            )}
+                            <div>
+                                <label className={labelClass}>事業所整理記号（任意）</label>
+                                <input value={meta.health_office_symbol} onChange={(e) => setMetaField('health_office_symbol', e.target.value)} className={fieldClass} />
+                            </div>
+                            {healthType === 'kokuho' ? (
+                                <p className="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">国民健康保険組合を選択した場合、保険料は従業員情報で固定金額を設定します。</p>
+                            ) : (
+                                <div className="space-y-2 rounded-lg border border-gray-100 p-3">
+                                    <p className="text-xs font-semibold text-gray-600">保険料率（/1,000）</p>
+                                    {HEALTH_KINDS.map((k) => (
+                                        <div key={k} className="flex items-center gap-3">
+                                            <span className="w-40 text-xs text-gray-700">{options.insuranceKinds[k] ?? k}</span>
+                                            <label className="text-[11px] text-gray-400">被保険者</label>
+                                            <input type="number" step="0.001" min="0" className={rateInputClass}
+                                                value={rates[k]?.employee_rate ?? '0'} onChange={(e) => setRate(k, 'employee_rate', e.target.value)} />
+                                            <label className="text-[11px] text-gray-400">事業主</label>
+                                            <input type="number" step="0.001" min="0" className={rateInputClass}
+                                                value={rates[k]?.employer_rate ?? '0'} onChange={(e) => setRate(k, 'employer_rate', e.target.value)} />
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </>
+                    )}
+
+                    {section === 'pension' && (
+                        <>
+                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                                <div>
+                                    <label className={labelClass}>管轄</label>
+                                    <input value={meta.pension_jurisdiction} onChange={(e) => setMetaField('pension_jurisdiction', e.target.value)} className={fieldClass} />
+                                </div>
+                                <div>
+                                    <label className={labelClass}>事業所番号</label>
+                                    <input value={meta.pension_office_number} onChange={(e) => setMetaField('pension_office_number', e.target.value)} className={fieldClass} />
+                                </div>
+                                <div>
+                                    <label className={labelClass}>事業所整理番号</label>
+                                    <input value={meta.pension_office_symbol} onChange={(e) => setMetaField('pension_office_symbol', e.target.value)} className={fieldClass} />
+                                </div>
+                            </div>
+                            <div className="space-y-2 rounded-lg border border-gray-100 p-3">
+                                <p className="text-xs font-semibold text-gray-600">保険料率（/1,000）</p>
+                                <div className="flex items-center gap-3">
+                                    <span className="w-40 text-xs text-gray-700">厚生年金保険</span>
+                                    <label className="text-[11px] text-gray-400">被保険者</label>
+                                    <input type="number" step="0.001" min="0" className={rateInputClass}
+                                        value={rates.pension?.employee_rate ?? '0'} onChange={(e) => setRate('pension', 'employee_rate', e.target.value)} />
+                                    <label className="text-[11px] text-gray-400">事業主</label>
+                                    <input type="number" step="0.001" min="0" className={rateInputClass}
+                                        value={rates.pension?.employer_rate ?? '0'} onChange={(e) => setRate('pension', 'employer_rate', e.target.value)} />
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="w-40 text-xs text-gray-700">子ども・子育て拠出金</span>
+                                    <label className="text-[11px] text-gray-400">被保険者</label>
+                                    <input type="number" className={`${rateInputClass} bg-gray-50 text-gray-400`} value="0" disabled />
+                                    <label className="text-[11px] text-gray-400">事業主</label>
+                                    <input type="number" step="0.001" min="0" className={rateInputClass}
+                                        value={rates.child_contribution?.employer_rate ?? '0'} onChange={(e) => setRate('child_contribution', 'employer_rate', e.target.value)} />
+                                </div>
+                                <p className="text-[11px] text-gray-400">厚生年金保険料率は男子(第1種)・女子(第2種)・坑内夫(第3種)で共通です。子ども・子育て拠出金は事業主全額負担です。</p>
+                            </div>
+                        </>
+                    )}
+
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-3">
+                    <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">キャンセル</button>
+                    <button onClick={submit} disabled={processing}
+                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
+                        <i className="fa-solid fa-floppy-disk" /> 保存する
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ==================== 労働保険タブ（MFクラウド準拠） ==================== */
+
+type LaborSection = 'accident' | 'employment';
+
+const LABOR_BUREAU_SUFFIX = '労働基準監督署';
+const EMPLOYMENT_BUREAU_SUFFIX = 'ハローワーク（公共職業安定所）';
+
+function stripBureauSuffix(value: string | null | undefined, suffix: string): string {
+    if (!value) return '';
+    const trimmed = value.trim();
+    if (trimmed.endsWith(suffix)) {
+        return trimmed.slice(0, -suffix.length).trim();
+    }
+    return trimmed;
+}
+
+function withBureauSuffix(prefix: string, suffix: string): string {
+    const p = prefix.trim();
+    if (!p) return '';
+    return `${p} ${suffix}`;
+}
+
+function splitEmploymentOfficeNumber(num: string | null | undefined): [string, string, string] {
+    const digits = (num ?? '').replace(/\D/g, '');
+    if (!digits) return ['', '', ''];
+    return [digits.slice(0, 4), digits.slice(4, 10), digits.slice(10)];
+}
+
+function composeEmploymentOfficeNumber(p1: string, p2: string, p3: string): string {
+    return `${p1}${p2}${p3}`.replace(/\D/g, '');
+}
+
+const laborModalLabelClass = 'w-44 shrink-0 bg-gray-50 px-4 py-3 text-left text-xs font-medium text-gray-600 align-middle';
+const laborModalCellClass = 'px-4 py-3 align-middle';
+const laborModalInputClass = 'rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500';
+
+function AccidentInsuranceEditModal({ loc, options, onClose }: {
+    loc: Location;
+    options: Props['options'];
+    onClose: () => void;
+}) {
+    const [laborBureau, setLaborBureau] = useState(stripBureauSuffix(loc.labor_bureau, LABOR_BUREAU_SUFFIX));
+    const [prefCode, setPrefCode] = useState(loc.labor_insurance_pref_code ?? '');
+    const [jurisdictionCode, setJurisdictionCode] = useState(loc.labor_insurance_jurisdiction_code ?? '');
+    const [officeCode, setOfficeCode] = useState(loc.labor_insurance_office_code ?? '');
+    const [serialNumber, setSerialNumber] = useState(loc.labor_insurance_serial_number ?? '');
+    const [branchCode, setBranchCode] = useState(loc.labor_insurance_branch_code ?? '');
+    const [businessDesc, setBusinessDesc] = useState(loc.accident_business_desc ?? '');
+    const [industryCode, setIndustryCode] = useState(loc.accident_industry_code ?? '');
+    const [meritEnabled, setMeritEnabled] = useState(!!loc.accident_merit_enabled);
+    const [meritRate, setMeritRate] = useState(loc.accident_merit_rate ?? '');
+    const [processing, setProcessing] = useState(false);
+
+    const submit = () => {
+        setProcessing(true);
+        router.put(route('admin.payroll.settings.locations.labor-insurance', loc.id), {
+            section: 'accident',
+            labor_bureau: withBureauSuffix(laborBureau, LABOR_BUREAU_SUFFIX) || null,
+            labor_insurance_pref_code: prefCode || null,
+            labor_insurance_jurisdiction_code: jurisdictionCode || null,
+            labor_insurance_office_code: officeCode || null,
+            labor_insurance_serial_number: serialNumber.replace(/\D/g, '') || null,
+            labor_insurance_branch_code: branchCode || null,
+            accident_business_desc: businessDesc || null,
+            accident_industry_code: industryCode || null,
+            accident_merit_enabled: meritEnabled,
+            accident_merit_rate: meritEnabled ? meritRate : null,
+        } as never, {
+            preserveScroll: true,
+            onSuccess: onClose,
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const numInput = (value: string, onChange: (v: string) => void, maxLen: number, width: string) => (
+        <input value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, '').slice(0, maxLen))}
+            inputMode="numeric" maxLength={maxLen} className={`${laborModalInputClass} ${width} text-center`} />
+    );
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                    <h3 className="text-sm font-bold text-gray-800">労災保険</h3>
+                    <button onClick={onClose} className="rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-100"><i className="fa-solid fa-xmark" /></button>
+                </div>
+
+                <table className="min-w-full text-sm">
+                    <tbody className="divide-y divide-gray-100">
+                        <tr>
+                            <th className={laborModalLabelClass}>管轄</th>
+                            <td className={laborModalCellClass}>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <input value={laborBureau} onChange={(e) => setLaborBureau(e.target.value)}
+                                        placeholder="例: 荒川" className={`${laborModalInputClass} w-32`} />
+                                    <span className="text-xs text-gray-500">{LABOR_BUREAU_SUFFIX}</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>労働保険番号</th>
+                            <td className={laborModalCellClass}>
+                                <div className="flex flex-wrap items-center gap-1">
+                                    {numInput(prefCode, setPrefCode, 2, 'w-12')}
+                                    <span className="text-gray-300">-</span>
+                                    {numInput(jurisdictionCode, setJurisdictionCode, 1, 'w-10')}
+                                    <span className="text-gray-300">-</span>
+                                    {numInput(officeCode, setOfficeCode, 2, 'w-12')}
+                                    <span className="text-gray-300">-</span>
+                                    {numInput(serialNumber, setSerialNumber, 6, 'w-24')}
+                                    <span className="text-gray-400">-</span>
+                                    {numInput(branchCode, setBranchCode, 3, 'w-14')}
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>具体的な業務又は作業の内容</th>
+                            <td className={laborModalCellClass}>
+                                <input value={businessDesc} onChange={(e) => setBusinessDesc(e.target.value)}
+                                    placeholder="例: 飲食店" className={`${laborModalInputClass} w-full`} />
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>労災保険料率用業種</th>
+                            <td className={laborModalCellClass}>
+                                <select value={industryCode} onChange={(e) => setIndustryCode(e.target.value)} className={`${laborModalInputClass} w-full`}>
+                                    <option value="">未設定</option>
+                                    {Object.entries(options.accidentIndustries).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                                </select>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>
+                                <span className="inline-flex items-center gap-1">
+                                    メリット制 (/1,000)
+                                    <i className="fa-regular fa-circle-question text-gray-300" title="メリット制適用時は業種料率の代わりにこちらの料率を使用します" />
+                                </span>
+                            </th>
+                            <td className={laborModalCellClass}>
+                                <div className="flex flex-wrap items-center gap-3">
+                                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                                        <input type="checkbox" checked={meritEnabled} onChange={(e) => setMeritEnabled(e.target.checked)}
+                                            className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" />
+                                        適用あり
+                                    </label>
+                                    <input value={meritRate} disabled={!meritEnabled}
+                                        onChange={(e) => setMeritRate(e.target.value.replace(/[^0-9.]/g, ''))}
+                                        inputMode="decimal" placeholder="0.000" className={`${laborModalInputClass} w-24 text-right disabled:bg-gray-50`} />
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div className="flex justify-center gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-4">
+                    <button onClick={submit} disabled={processing}
+                        className="inline-flex min-w-[120px] items-center justify-center rounded-lg bg-amber-400 px-6 py-2 text-sm font-semibold text-gray-900 hover:bg-amber-500 disabled:opacity-50">
+                        更新する
+                    </button>
+                    <button onClick={onClose}
+                        className="inline-flex min-w-[120px] items-center justify-center rounded-lg border border-gray-300 bg-white px-6 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function EmploymentInsuranceEditModal({ loc, options, onClose }: {
+    loc: Location;
+    options: Props['options'];
+    onClose: () => void;
+}) {
+    const [empBureau, setEmpBureau] = useState(stripBureauSuffix(loc.employment_bureau, EMPLOYMENT_BUREAU_SUFFIX));
+    const [officeParts, setOfficeParts] = useState(() => splitEmploymentOfficeNumber(loc.employment_office_number));
+    const [industryType, setIndustryType] = useState(loc.employment_industry_type ?? '');
+    const [processing, setProcessing] = useState(false);
+
+    const setOfficePart = (idx: 0 | 1 | 2, v: string) => {
+        const maxLens = [4, 6, 3] as const;
+        setOfficeParts((prev) => {
+            const next: [string, string, string] = [...prev] as [string, string, string];
+            next[idx] = v.replace(/\D/g, '').slice(0, maxLens[idx]);
+            return next;
+        });
+    };
+
+    const submit = () => {
+        setProcessing(true);
+        router.put(route('admin.payroll.settings.locations.labor-insurance', loc.id), {
+            section: 'employment',
+            employment_bureau: withBureauSuffix(empBureau, EMPLOYMENT_BUREAU_SUFFIX) || null,
+            employment_office_number: composeEmploymentOfficeNumber(...officeParts) || null,
+            employment_industry_type: industryType || null,
+        } as never, {
+            preserveScroll: true,
+            onSuccess: onClose,
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+            <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                    <h3 className="text-sm font-bold text-gray-800">雇用保険</h3>
+                    <button onClick={onClose} className="rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-100"><i className="fa-solid fa-xmark" /></button>
+                </div>
+
+                <table className="min-w-full text-sm">
+                    <tbody className="divide-y divide-gray-100">
+                        <tr>
+                            <th className={laborModalLabelClass}>管轄</th>
+                            <td className={laborModalCellClass}>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <input value={empBureau} onChange={(e) => setEmpBureau(e.target.value)}
+                                        placeholder="例: 荒川" className={`${laborModalInputClass} w-32`} />
+                                    <span className="text-xs text-gray-500">{EMPLOYMENT_BUREAU_SUFFIX}</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>事業所番号</th>
+                            <td className={laborModalCellClass}>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                    <input value={officeParts[0]} onChange={(e) => setOfficePart(0, e.target.value)}
+                                        inputMode="numeric" maxLength={4} className={`${laborModalInputClass} w-16 text-center`} />
+                                    <input value={officeParts[1]} onChange={(e) => setOfficePart(1, e.target.value)}
+                                        inputMode="numeric" maxLength={6} className={`${laborModalInputClass} w-24 text-center`} />
+                                    <input value={officeParts[2]} onChange={(e) => setOfficePart(2, e.target.value)}
+                                        inputMode="numeric" maxLength={3} className={`${laborModalInputClass} w-12 text-center`} />
+                                </div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th className={laborModalLabelClass}>雇用保険料率用業種</th>
+                            <td className={laborModalCellClass}>
+                                <select value={industryType} onChange={(e) => setIndustryType(e.target.value)} className={`${laborModalInputClass} w-full`}>
+                                    <option value="">未設定</option>
+                                    {Object.entries(options.employmentIndustries).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                                </select>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div className="flex justify-center gap-3 border-t border-gray-100 bg-gray-50/50 px-5 py-4">
+                    <button onClick={submit} disabled={processing}
+                        className="inline-flex min-w-[120px] items-center justify-center rounded-lg bg-amber-400 px-6 py-2 text-sm font-semibold text-gray-900 hover:bg-amber-500 disabled:opacity-50">
+                        更新する
+                    </button>
+                    <button onClick={onClose}
+                        className="inline-flex min-w-[120px] items-center justify-center rounded-lg border border-gray-300 bg-white px-6 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                        キャンセル
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function LaborInsuranceTab({ locs, options, canWrite, patchRate, deleteRow, saveInsurance, processing }: {
+    locs: Location[];
+    options: Props['options'];
+    canWrite: boolean;
+    patchRate: (locId: number, rateId: number, patch: Partial<RateRow>) => void;
+    deleteRow: (url: string, msg: string) => void;
+    saveInsurance: () => void;
+    processing: boolean;
+}) {
+    const [selectedId, setSelectedId] = useState<number | null>(null);
+    const [editSection, setEditSection] = useState<LaborSection | null>(null);
+    const [laborManualEdit, setLaborManualEdit] = useState(false);
+
+    const loc = locs.find((l) => l.id === selectedId) ?? locs[0] ?? null;
+    const set = loc?.insurance_rate_sets[0];
+    const accident = set?.rates.find((r) => r.kind === 'accident');
+    const employment = set?.rates.find((r) => r.kind === 'employment');
+    const accidentEmployer = loc?.accident_merit_enabled && loc.accident_merit_rate
+        ? loc.accident_merit_rate
+        : accident?.employer_rate;
+    const empEmployee = employment?.employee_rate;
+    const empEmployer = employment?.employer_rate;
+    const empTotal = employment
+        ? parseFloat(employment.employee_rate || '0') + parseFloat(employment.employer_rate || '0')
+        : null;
+    const accidentLabel = loc?.accident_industry_code ? (options.accidentIndustries[loc.accident_industry_code] ?? loc.accident_industry_code) : '未設定';
+    const employmentLabel = loc?.employment_industry_type ? (options.employmentIndustries[loc.employment_industry_type] ?? loc.employment_industry_type) : '未設定';
+    const editBtnClass = 'inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 transition hover:bg-gray-50';
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-start justify-between gap-3">
+                <p className="text-xs text-gray-500">
+                    労災保険・雇用保険の情報と料率を事業所ごとに管理します。料率は編集で業種（メリット制含む）を選ぶと自動セットされます（<span className="font-semibold">/1,000（千分率）</span>）。
+                </p>
+                {canWrite && (
+                    <button type="button" onClick={() => setLaborManualEdit((v) => !v)}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50">
+                        <i className="fa-solid fa-sliders" /> {laborManualEdit ? '料率手修正を閉じる' : '料率を手修正'}
+                    </button>
+                )}
+            </div>
+
+            {locs.length === 0 && (
+                <div className={`${cardClass} px-4 py-8 text-center text-sm text-gray-400`}>事業所が登録されていません。先に「事業所」タブで登録してください。</div>
+            )}
+
+            {locs.length > 0 && loc && (
+                <>
+                    <div className="flex flex-wrap items-center gap-3">
+                        <select className={`${selectClass} min-w-[220px] text-base font-semibold text-gray-800`}
+                            value={String(loc.id)} onChange={(e) => setSelectedId(Number(e.target.value))}>
+                            {locs.map((l) => (
+                                <option key={l.id} value={String(l.id)}>{l.name}{l.is_main ? '（本社）' : ''}</option>
+                            ))}
+                        </select>
+                        {set && (
+                            <span className="text-xs text-gray-400">
+                                料率セット: {set.name}（{set.effective_from}〜{set.effective_to ?? '現行'}）
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="space-y-4">
+                        {/* 労災保険情報 */}
+                        <div className={cardClass}>
+                            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                                <h4 className="text-sm font-bold text-gray-700">労災保険情報</h4>
+                                {canWrite && (
+                                    <button onClick={() => setEditSection('accident')} className={editBtnClass}>
+                                        <i className="fa-solid fa-pen" /> 編集
+                                    </button>
+                                )}
+                            </div>
+                            <table className="min-w-full table-fixed text-sm">
+                                <tbody className="divide-y divide-gray-100">
+                                    <tr>
+                                        <th className="w-56 bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">管轄</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{loc.labor_bureau || '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">労働保険番号</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{loc.labor_insurance_number || '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">具体的な業務又は作業の内容</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{loc.accident_business_desc || '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">労災保険業種</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{accidentLabel}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div className="px-4 pt-3 text-xs text-gray-400">労災保険料率</div>
+                            <table className="mt-1 min-w-full table-fixed text-sm">
+                                <tbody className="divide-y divide-gray-100">
+                                    <tr className="bg-slate-50">
+                                        <th className="w-56 px-4 py-2 text-left font-semibold text-gray-600">/1,000</th>
+                                        <td className="px-4 py-2 font-semibold text-gray-700">
+                                            {accidentLabel}
+                                            {loc.accident_merit_enabled && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">メリット制</span>}
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">事業主</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{accidentEmployer != null ? fmtPermille(accidentEmployer) : '—'}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {/* 雇用保険情報 */}
+                        <div className={cardClass}>
+                            <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
+                                <h4 className="text-sm font-bold text-gray-700">雇用保険情報</h4>
+                                {canWrite && (
+                                    <button onClick={() => setEditSection('employment')} className={editBtnClass}>
+                                        <i className="fa-solid fa-pen" /> 編集
+                                    </button>
+                                )}
+                            </div>
+                            <table className="min-w-full table-fixed text-sm">
+                                <tbody className="divide-y divide-gray-100">
+                                    <tr>
+                                        <th className="w-56 bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">管轄</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{loc.employment_bureau || '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">事業所番号</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{loc.employment_office_number || '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">雇用保険料率用業種</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{employmentLabel}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                            <div className="px-4 pt-3 text-xs text-gray-400">雇用保険料率</div>
+                            <table className="mt-1 min-w-full table-fixed text-sm">
+                                <tbody className="divide-y divide-gray-100">
+                                    <tr className="bg-slate-50">
+                                        <th className="w-56 px-4 py-2 text-left font-semibold text-gray-600">/1,000</th>
+                                        <td className="px-4 py-2 font-semibold text-gray-700">{employmentLabel}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">従業員</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{empEmployee != null ? fmtPermille(empEmployee) : '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">事業主</th>
+                                        <td className="px-4 py-2.5 text-gray-800">{empEmployer != null ? fmtPermille(empEmployer) : '—'}</td>
+                                    </tr>
+                                    <tr>
+                                        <th className="bg-gray-50 px-4 py-2.5 text-left font-medium text-gray-600">合計</th>
+                                        <td className="px-4 py-2.5 font-semibold text-gray-900">{empTotal != null ? fmtPermille(empTotal) : '—'}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        {!set && (
+                            <p className="px-1 text-xs text-amber-600">料率セットが未登録です。「社会保険」タブで料率セットを追加すると、業種に応じた労災・雇用料率が自動反映されます。</p>
+                        )}
+
+                        {laborManualEdit && set && (
+                            <RateEditorCard loc={loc} kinds={LABOR_KINDS} options={options}
+                                canWrite={canWrite} patchRate={patchRate} deleteRow={deleteRow} showSetDelete={false} />
+                        )}
+                    </div>
+                </>
+            )}
+
+            {canWrite && laborManualEdit && locs.some((l) => l.insurance_rate_sets[0]) && (
+                <div className="flex justify-end">
+                    <button type="button" onClick={saveInsurance} disabled={processing}
+                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
+                        <i className="fa-solid fa-floppy-disk" />
+                        料率を保存する
+                    </button>
+                </div>
+            )}
+
+            {editSection === 'accident' && loc && (
+                <AccidentInsuranceEditModal loc={loc} options={options} onClose={() => setEditSection(null)} />
+            )}
+            {editSection === 'employment' && loc && (
+                <EmploymentInsuranceEditModal loc={loc} options={options} onClose={() => setEditSection(null)} />
+            )}
+        </div>
+    );
+}
+
+/* ---------- 厚生年金基金（複数登録可・給与/賞与別料率） ---------- */
+
+interface PensionRateDraft {
+    effective_from: string; // 'YYYY-MM'
+    salary_employee_rate: string;
+    salary_employer_rate: string;
+    bonus_employee_rate: string;
+    bonus_employer_rate: string;
+}
+
+function PensionFundSection({ loc, canWrite, deleteRow }: {
+    loc: Location;
+    canWrite: boolean;
+    deleteRow: (url: string, msg: string) => void;
+}) {
+    const [editing, setEditing] = useState<PensionFundRow | 'new' | null>(null);
+    const funds = loc.pension_funds ?? [];
+
+    const sectionHeaderClass = 'flex items-center justify-between border-b border-gray-100 px-4 py-3';
+    const editBtnClass = 'inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50';
+
+    const monthLabel = (d: string) => (d ? d.slice(0, 7).replace('-', '/') : '');
+
+    return (
+        <div className={cardClass}>
+            <div className={sectionHeaderClass}>
+                <h3 className="text-sm font-bold text-gray-800">厚生年金基金</h3>
+                {canWrite && (
+                    <button onClick={() => setEditing('new')} className={editBtnClass}>
+                        <i className="fa-solid fa-plus" /> 基金を追加
+                    </button>
+                )}
+            </div>
+            <div className="space-y-3 px-4 py-3">
+                {funds.length === 0 ? (
+                    <div className="rounded-lg bg-gray-50 px-4 py-4 text-xs text-gray-500">
+                        <p>厚生年金基金情報がありません。</p>
+                        <p>「基金を追加」から厚生年金基金を登録してください。</p>
+                    </div>
+                ) : (
+                    funds.map((fund) => (
+                        <div key={fund.id} className="rounded-xl border border-gray-100">
+                            <div className="flex items-center justify-between border-b border-gray-100 px-3 py-2">
+                                <div className="text-sm font-semibold text-gray-800">{fund.name}</div>
+                                {canWrite && (
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => setEditing(fund)} className={editBtnClass}>
+                                            <i className="fa-solid fa-pen" /> 編集
+                                        </button>
+                                        <button
+                                            onClick={() => deleteRow(route('admin.payroll.settings.pension-funds.destroy', fund.id), `厚生年金基金「${fund.name}」を削除しますか？`)}
+                                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-red-500 hover:bg-red-50">
+                                            <i className="fa-solid fa-trash-can" />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                            <div className="px-3 py-3">
+                                {(fund.number || fund.office_number) && (
+                                    <dl className="mb-3 flex flex-wrap gap-x-8 gap-y-1 text-xs">
+                                        {fund.number && <div><dt className="inline text-gray-400">基金番号：</dt><dd className="inline font-medium text-gray-700">{fund.number}</dd></div>}
+                                        {fund.office_number && <div><dt className="inline text-gray-400">基金の事業所番号：</dt><dd className="inline font-medium text-gray-700">{fund.office_number}</dd></div>}
+                                    </dl>
+                                )}
+                                {fund.rates.length === 0 ? (
+                                    <p className="text-xs text-gray-400">掛金料率が未登録です。</p>
+                                ) : (
+                                    <div className="overflow-x-auto rounded-lg border border-gray-100">
+                                        <table className="min-w-full divide-y divide-gray-100 text-center">
+                                            <thead className="bg-gray-50">
+                                                <tr>
+                                                    <th className={thClass} rowSpan={2}>適用開始月</th>
+                                                    <th className={thClass} colSpan={2}>給与（/1,000）</th>
+                                                    <th className={thClass} colSpan={2}>賞与（/1,000）</th>
+                                                </tr>
+                                                <tr>
+                                                    <th className={thClass}>被保険者負担</th>
+                                                    <th className={thClass}>事業主負担</th>
+                                                    <th className={thClass}>被保険者負担</th>
+                                                    <th className={thClass}>事業主負担</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-100">
+                                                {fund.rates.map((r) => (
+                                                    <tr key={r.id}>
+                                                        <td className={`${tdClass} font-medium text-gray-800`}>{monthLabel(r.effective_from)}</td>
+                                                        <td className={tdClass}>{fmtPermille(r.salary_employee_rate)}</td>
+                                                        <td className={tdClass}>{fmtPermille(r.salary_employer_rate)}</td>
+                                                        <td className={tdClass}>{fmtPermille(r.bonus_employee_rate)}</td>
+                                                        <td className={tdClass}>{fmtPermille(r.bonus_employer_rate)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+
+            {editing && (
+                <PensionFundEditModal
+                    loc={loc}
+                    fund={editing === 'new' ? null : editing}
+                    onClose={() => setEditing(null)}
+                />
+            )}
+        </div>
+    );
+}
+
+function PensionFundEditModal({ loc, fund, onClose }: {
+    loc: Location;
+    fund: PensionFundRow | null;
+    onClose: () => void;
+}) {
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const [name, setName] = useState(fund?.name ?? '');
+    const [number, setNumber] = useState(fund?.number ?? '');
+    const [officeNumber, setOfficeNumber] = useState(fund?.office_number ?? '');
+    const [rates, setRates] = useState<PensionRateDraft[]>(() =>
+        fund && fund.rates.length > 0
+            ? fund.rates.map((r) => ({
+                effective_from: r.effective_from.slice(0, 7),
+                salary_employee_rate: String(r.salary_employee_rate ?? '0'),
+                salary_employer_rate: String(r.salary_employer_rate ?? '0'),
+                bonus_employee_rate: String(r.bonus_employee_rate ?? '0'),
+                bonus_employer_rate: String(r.bonus_employer_rate ?? '0'),
+            }))
+            : [{ effective_from: currentMonth, salary_employee_rate: '0.0', salary_employer_rate: '0.0', bonus_employee_rate: '0.0', bonus_employer_rate: '0.0' }],
+    );
+    const [processing, setProcessing] = useState(false);
+
+    const setRateField = (idx: number, field: keyof PensionRateDraft, v: string) =>
+        setRates((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: v } : r)));
+    const addRate = () =>
+        setRates((prev) => [...prev, { effective_from: currentMonth, salary_employee_rate: '0.0', salary_employer_rate: '0.0', bonus_employee_rate: '0.0', bonus_employer_rate: '0.0' }]);
+    const removeRate = (idx: number) => setRates((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
+
+    const submit = () => {
+        setProcessing(true);
+        const payload = {
+            business_location_id: loc.id,
+            name,
+            number,
+            office_number: officeNumber,
+            rates: rates.map((r) => ({
+                effective_from: `${r.effective_from}-01`,
+                salary_employee_rate: r.salary_employee_rate === '' ? 0 : r.salary_employee_rate,
+                salary_employer_rate: r.salary_employer_rate === '' ? 0 : r.salary_employer_rate,
+                bonus_employee_rate: r.bonus_employee_rate === '' ? 0 : r.bonus_employee_rate,
+                bonus_employer_rate: r.bonus_employer_rate === '' ? 0 : r.bonus_employer_rate,
+            })),
+        };
+        const opts = { preserveScroll: true, onSuccess: onClose, onFinish: () => setProcessing(false) };
+        if (fund) {
+            router.put(route('admin.payroll.settings.pension-funds.update', fund.id), payload as never, opts);
+        } else {
+            router.post(route('admin.payroll.settings.pension-funds.store'), payload as never, opts);
+        }
+    };
+
+    const fieldClass = 'w-full rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500';
+    const labelClass = 'mb-1 block text-xs font-medium text-gray-500';
+    const rateInputClass = 'w-24 rounded-lg border-gray-300 text-sm shadow-sm focus:border-teal-500 focus:ring-teal-500';
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+            <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                    <h3 className="text-sm font-bold text-gray-800">厚生年金基金の{fund ? '編集' : '登録'} <span className="ml-2 font-normal text-gray-400">{loc.name}</span></h3>
+                    <button onClick={onClose} className="rounded px-1.5 py-0.5 text-gray-400 hover:bg-gray-100"><i className="fa-solid fa-xmark" /></button>
+                </div>
+
+                <div className="space-y-4 px-5 py-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div>
+                            <label className={labelClass}>基金名</label>
+                            <input value={name} onChange={(e) => setName(e.target.value)} className={fieldClass} />
+                        </div>
+                        <div>
+                            <label className={labelClass}>基金番号</label>
+                            <input value={number} onChange={(e) => setNumber(e.target.value)} className={fieldClass} />
+                        </div>
+                        <div>
+                            <label className={labelClass}>基金の事業所番号</label>
+                            <input value={officeNumber} onChange={(e) => setOfficeNumber(e.target.value)} className={fieldClass} />
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <p className="text-xs font-semibold text-gray-600">保険料率</p>
+                            <button type="button" onClick={addRate} className="inline-flex items-center gap-1.5 text-xs font-medium text-teal-600 hover:text-teal-700">
+                                <i className="fa-solid fa-plus" /> 保険料率を追加
+                            </button>
+                        </div>
+
+                        {rates.map((r, idx) => (
+                            <div key={idx} className="space-y-2 rounded-lg border border-gray-100 p-3">
+                                <div className="flex items-center gap-3">
+                                    <label className="text-xs text-gray-500">適用開始月</label>
+                                    <input type="month" value={r.effective_from} onChange={(e) => setRateField(idx, 'effective_from', e.target.value)}
+                                        className="rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500" />
+                                    {rates.length > 1 && (
+                                        <button type="button" onClick={() => removeRate(idx)} className="ml-auto text-xs font-medium text-red-500 hover:text-red-600">
+                                            <i className="fa-solid fa-trash-can mr-1" />削除
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full text-center text-xs">
+                                        <thead>
+                                            <tr className="text-gray-400">
+                                                <th className="py-1 font-medium">/1,000</th>
+                                                <th className="py-1 font-medium">被保険者負担</th>
+                                                <th className="py-1 font-medium">事業主負担</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td className="py-1 text-left font-medium text-gray-700">給与</td>
+                                                <td className="py-1"><input type="number" step="0.001" min="0" className={rateInputClass}
+                                                    value={r.salary_employee_rate} onChange={(e) => setRateField(idx, 'salary_employee_rate', e.target.value)} /></td>
+                                                <td className="py-1"><input type="number" step="0.001" min="0" className={rateInputClass}
+                                                    value={r.salary_employer_rate} onChange={(e) => setRateField(idx, 'salary_employer_rate', e.target.value)} /></td>
+                                            </tr>
+                                            <tr>
+                                                <td className="py-1 text-left font-medium text-gray-700">賞与</td>
+                                                <td className="py-1"><input type="number" step="0.001" min="0" className={rateInputClass}
+                                                    value={r.bonus_employee_rate} onChange={(e) => setRateField(idx, 'bonus_employee_rate', e.target.value)} /></td>
+                                                <td className="py-1"><input type="number" step="0.001" min="0" className={rateInputClass}
+                                                    value={r.bonus_employer_rate} onChange={(e) => setRateField(idx, 'bonus_employer_rate', e.target.value)} /></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        ))}
+                        <p className="text-[11px] text-gray-400">掛金料率を設定すると、厚生年金基金掛金が標準報酬月額から自動計算されます（控除項目マスタで有効化が必要です）。給与・賞与でそれぞれの料率が適用されます。</p>
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50/50 px-5 py-3">
+                    <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50">キャンセル</button>
+                    <button onClick={submit} disabled={processing || name.trim() === ''}
+                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50">
+                        <i className="fa-solid fa-floppy-disk" /> 保存する
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -1486,8 +2726,12 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
 
     const blankLocation: LocationFormShape = {
         name: '', code: '', is_main: false, health_insurance_type: 'kyokai', prefecture: '',
-        labor_insurance_number: '', office_number: '', accident_industry_code: '', employment_industry_type: '',
-        labor_bureau: '', accident_business_desc: '', employment_office_number: '',
+        labor_insurance_number: '',
+        labor_insurance_pref_code: '', labor_insurance_jurisdiction_code: '', labor_insurance_office_code: '',
+        labor_insurance_serial_number: '', labor_insurance_branch_code: '',
+        office_number: '', accident_industry_code: '', accident_merit_enabled: false, accident_merit_rate: '',
+        employment_industry_type: '',
+        labor_bureau: '', employment_bureau: '', accident_business_desc: '', employment_office_number: '',
         postal_code: '', address: '', note: '',
         sort_order: locations.length,
     };
@@ -2137,9 +3381,19 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
                                             initial={{
                                                 name: loc.name, code: loc.code ?? '', is_main: loc.is_main,
                                                 health_insurance_type: loc.health_insurance_type, prefecture: loc.prefecture ?? '',
-                                                labor_insurance_number: loc.labor_insurance_number ?? '', office_number: loc.office_number ?? '',
-                                                accident_industry_code: loc.accident_industry_code ?? '', employment_industry_type: loc.employment_industry_type ?? '',
-                                                labor_bureau: loc.labor_bureau ?? '', accident_business_desc: loc.accident_business_desc ?? '',
+                                                labor_insurance_number: loc.labor_insurance_number ?? '',
+                                                labor_insurance_pref_code: loc.labor_insurance_pref_code ?? '',
+                                                labor_insurance_jurisdiction_code: loc.labor_insurance_jurisdiction_code ?? '',
+                                                labor_insurance_office_code: loc.labor_insurance_office_code ?? '',
+                                                labor_insurance_serial_number: loc.labor_insurance_serial_number ?? '',
+                                                labor_insurance_branch_code: loc.labor_insurance_branch_code ?? '',
+                                                office_number: loc.office_number ?? '',
+                                                accident_industry_code: loc.accident_industry_code ?? '',
+                                                accident_merit_enabled: !!loc.accident_merit_enabled,
+                                                accident_merit_rate: loc.accident_merit_rate ?? '',
+                                                employment_industry_type: loc.employment_industry_type ?? '',
+                                                labor_bureau: loc.labor_bureau ?? '', employment_bureau: loc.employment_bureau ?? '',
+                                                accident_business_desc: loc.accident_business_desc ?? '',
                                                 employment_office_number: loc.employment_office_number ?? '',
                                                 postal_code: loc.postal_code ?? '', address: loc.address ?? '', note: loc.note ?? '',
                                                 sort_order: loc.sort_order,
@@ -2186,81 +3440,19 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
                 )}
 
                 {tab === 'insurance' && (
-                    <div className="space-y-6">
-                        <p className="text-xs text-gray-500">
-                            健康保険・介護保険・子ども子育て拠出金・厚生年金の料率を事業所ごと・適用期間ごとに管理します（<span className="font-semibold">/1,000（千分率）</span>で入力）。新しい適用期間の料率は下のフォームから追加できます。労災・雇用の料率は「労働保険」タブで管理します。
-                        </p>
-                        {canWrite && (
-                            <div className={`${cardClass} p-5`}>
-                                <h3 className="mb-3 text-sm font-bold text-gray-800"><i className="fa-solid fa-plus mr-2 text-teal-600" />料率セットを追加</h3>
-                                <div className="flex flex-wrap items-end gap-3">
-                                    <div className="w-48">
-                                        <label className="mb-1 block text-xs font-medium text-gray-500">事業所</label>
-                                        <select className={`${selectClass} w-full`} value={newRateSet.data.business_location_id} onChange={(e) => newRateSet.setData('business_location_id', e.target.value)}>
-                                            <option value="">選択</option>
-                                            {locs.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
-                                        </select>
-                                    </div>
-                                    <div className="flex-1 min-w-[160px]">
-                                        <label className="mb-1 block text-xs font-medium text-gray-500">名称</label>
-                                        <input className="w-full rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500" value={newRateSet.data.name} onChange={(e) => newRateSet.setData('name', e.target.value)} placeholder="例）2026年度 本社" />
-                                    </div>
-                                    <div><label className="mb-1 block text-xs font-medium text-gray-500">適用開始</label><input type="date" className="rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500" value={newRateSet.data.effective_from} onChange={(e) => newRateSet.setData('effective_from', e.target.value)} /></div>
-                                    <div><label className="mb-1 block text-xs font-medium text-gray-500">適用終了(任意)</label><input type="date" className="rounded-lg border-gray-300 text-sm focus:border-teal-500 focus:ring-teal-500" value={newRateSet.data.effective_to} onChange={(e) => newRateSet.setData('effective_to', e.target.value)} /></div>
-                                    <button onClick={() => newRateSet.post(route('admin.payroll.settings.insurance-sets.store'), { preserveScroll: true, onSuccess: () => newRateSet.reset('name', 'effective_from', 'effective_to') })}
-                                        disabled={newRateSet.processing || newRateSet.data.business_location_id === '' || newRateSet.data.name.trim() === '' || newRateSet.data.effective_from === ''}
-                                        className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"><i className="fa-solid fa-plus" /> 追加</button>
-                                </div>
-                            </div>
-                        )}
-                        {locs.length === 0 && (
-                            <div className={`${cardClass} px-4 py-8 text-center text-sm text-gray-400`}>事業所が登録されていません。</div>
-                        )}
-                        {locs.map((loc) => (
-                            <RateEditorCard key={loc.id} loc={loc} kinds={SOCIAL_KINDS} options={options}
-                                canWrite={canWrite} patchRate={patchRate} deleteRow={deleteRow} showSetDelete />
-                        ))}
-                        {canWrite && locs.some((l) => l.insurance_rate_sets[0]) && (
-                            <div className="flex justify-end">
-                                <button type="button" onClick={saveInsurance} disabled={processing}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
-                                    <i className="fa-solid fa-floppy-disk" />
-                                    保存する
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                    <SocialInsuranceTab locs={locs} options={options} canWrite={canWrite} newRateSet={newRateSet} deleteRow={deleteRow} />
                 )}
 
                 {tab === 'labor' && (
-                    <div className="space-y-6">
-                        <p className="text-xs text-gray-500">
-                            労災保険（事業主全額負担）・雇用保険の料率を管理します（<span className="font-semibold">/1,000（千分率）</span>）。
-                            料率は「事業所」タブで業種を選択すると自動セットされます（改定時は手修正も可）。雇用保険料は加入者について労働保険対象額から自動計算されます。
-                        </p>
-                        {locs.length === 0 && (
-                            <div className={`${cardClass} px-4 py-8 text-center text-sm text-gray-400`}>事業所が登録されていません。</div>
-                        )}
-                        {locs.map((loc) => (
-                            <div key={loc.id} className="space-y-2">
-                                <div className="flex flex-wrap gap-4 px-1 text-xs text-gray-500">
-                                    <span>労災業種: <span className="font-medium text-gray-700">{loc.accident_industry_code ? (options.accidentIndustries[loc.accident_industry_code] ?? loc.accident_industry_code) : '未設定'}</span></span>
-                                    <span>雇用区分: <span className="font-medium text-gray-700">{loc.employment_industry_type ? (options.employmentIndustries[loc.employment_industry_type] ?? loc.employment_industry_type) : '未設定'}</span></span>
-                                </div>
-                                <RateEditorCard loc={loc} kinds={LABOR_KINDS} options={options}
-                                    canWrite={canWrite} patchRate={patchRate} deleteRow={deleteRow} showSetDelete={false} />
-                            </div>
-                        ))}
-                        {canWrite && locs.some((l) => l.insurance_rate_sets[0]) && (
-                            <div className="flex justify-end">
-                                <button type="button" onClick={saveInsurance} disabled={processing}
-                                    className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
-                                    <i className="fa-solid fa-floppy-disk" />
-                                    保存する
-                                </button>
-                            </div>
-                        )}
-                    </div>
+                    <LaborInsuranceTab
+                        locs={locs}
+                        options={options}
+                        canWrite={canWrite}
+                        patchRate={patchRate}
+                        deleteRow={deleteRow}
+                        saveInsurance={saveInsurance}
+                        processing={processing}
+                    />
                 )}
 
                 {tab === 'resident_tax' && (

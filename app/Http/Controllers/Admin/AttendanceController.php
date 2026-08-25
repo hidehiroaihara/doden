@@ -195,7 +195,7 @@ class AttendanceController extends Controller
             $userQuery->where('department_id', $departmentId);
         }
 
-        $users = $userQuery->orderBy('name')->get(['id', 'name', 'department_id']);
+        $users = $userQuery->orderByEmployeeNo()->get(['users.id', 'users.name', 'users.department_id']);
 
         $attendances = Attendance::whereBetween('work_date', [$from, $to])
             ->whereIn('user_id', $users->pluck('id'))
@@ -289,7 +289,7 @@ class AttendanceController extends Controller
 
         return Inertia::render('Admin/Attendances/Index', [
             'attendances' => $attendances,
-            'users' => User::orderBy('name')->get(['id', 'name']),
+            'users' => User::orderByEmployeeNo()->get(['users.id', 'users.name']),
             'filters' => [
                 'user_id' => $request->input('user_id', ''),
                 'date_from' => $dateFrom,
@@ -301,7 +301,7 @@ class AttendanceController extends Controller
     public function create(Request $request)
     {
         return Inertia::render('Admin/Attendances/Create', [
-            'users' => User::where('is_active', true)->orderBy('name')->get(['id', 'name', 'break_minutes']),
+            'users' => User::where('is_active', true)->orderByEmployeeNo()->get(['users.id', 'users.name', 'users.break_minutes']),
             'defaultBreakMinutes' => (int) Setting::getValue('default_break_minutes', 60),
             'presetUserId' => $request->input('user_id', ''),
             'presetDate' => $request->input('date', ''),

@@ -132,6 +132,13 @@ class BonusCalculator
             $pension = $this->insurance($rateSet, 'pension', $pensionBase);
             $rows[] = ['code' => 'pension_insurance', 'name' => '厚生年金', 'category' => 'insurance', 'amount' => $pension];
             $socialTotal += $pension;
+
+            // 厚生年金基金掛金（賞与料率・全基金合算）。料率未設定なら行を追加しない。
+            $fund = $this->pensionFundEmployee($employee, $effectiveDate, $pensionBase);
+            if ($fund > 0) {
+                $rows[] = ['code' => 'pension_fund', 'name' => '厚生年金基金掛金', 'category' => 'insurance', 'amount' => $fund];
+                $socialTotal += $fund;
+            }
         }
 
         if ($employee->is_employment_insurance_enrolled) {
@@ -168,6 +175,24 @@ class BonusCalculator
         ];
 
         return [$rows, $flatTaxApplied, $snapshot];
+    }
+
+    /**
+     * 厚生年金基金掛金（賞与・従業員負担）を全基金合算で算出する。
+     */
+    private function pensionFundEmployee(EmployeePayroll $employee, string $effectiveDate, int $base): int
+    {
+        if ($base <= 0) {
+            return 0;
+        }
+
+        $funds = $employee->businessLocation?->pensionFunds()->with('rates')->get() ?? collect();
+        $rate = \App\Models\PensionFund::totalRates($funds, $effectiveDate, 'bonus')['employee'];
+        if ($rate <= 0) {
+            return 0;
+        }
+
+        return (int) round($base * $rate / 1000);
     }
 
     private function insurance(?InsuranceRateSet $rateSet, string $kind, int $base): int

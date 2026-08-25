@@ -56,6 +56,8 @@ class EmployeePayroll extends Model
         'account_type',
         'account_number',
         'account_holder_kana',
+        'transfer_fixed_amount1',
+        'transfer_fixed_amount2',
         'resident_tax_municipality',
         'resident_tax_recipient_number',
     ];
@@ -92,6 +94,8 @@ class EmployeePayroll extends Model
             'commute_allowance_non_taxable' => 'integer',
             'resident_tax_monthly' => 'integer',
             'resident_tax_june' => 'integer',
+            'transfer_fixed_amount1' => 'integer',
+            'transfer_fixed_amount2' => 'integer',
         ];
     }
 

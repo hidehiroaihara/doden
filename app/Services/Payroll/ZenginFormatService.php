@@ -31,6 +31,7 @@ class ZenginFormatService
     {
         $payslips = $run->payslips()
             ->with(['user.employeePayroll'])
+            ->orderByEmployeeNo()
             ->get()
             ->filter(fn (Payslip $p) => $this->hasAccount($p) && $p->net_pay > 0)
             ->values();

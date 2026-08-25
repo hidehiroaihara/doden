@@ -63,7 +63,7 @@ class PayslipReportController extends Controller
                 ->when($filters['location'] !== '' && $filters['location'] !== null, fn ($q) => $q->where('employee_payrolls.business_location_id', $filters['location']))
                 ->when($filters['exclude_zero'], fn ($q) => $q->where('payslips.net_pay', '!=', 0))
                 ->when($filters['corrected'], fn ($q) => $q->whereHas('items', fn ($qq) => $qq->where('is_manual_override', true)))
-                ->orderByRaw('employee_payrolls.employee_no IS NULL, employee_payrolls.employee_no ASC')
+                ->orderByRaw('employee_payrolls.employee_no IS NULL, LENGTH(employee_payrolls.employee_no), employee_payrolls.employee_no ASC')
                 ->orderBy('payslips.id')
                 ->select('payslips.*');
 
@@ -128,7 +128,7 @@ class PayslipReportController extends Controller
             ->whereIn('payslips.id', $validated['ids'])
             ->with(['user:id,name', 'user.employeePayroll:id,user_id,employee_no'])
             ->leftJoin('employee_payrolls', 'employee_payrolls.user_id', '=', 'payslips.user_id')
-            ->orderByRaw('employee_payrolls.employee_no IS NULL, employee_payrolls.employee_no ASC')
+            ->orderByRaw('employee_payrolls.employee_no IS NULL, LENGTH(employee_payrolls.employee_no), employee_payrolls.employee_no ASC')
             ->orderBy('payslips.id')
             ->select('payslips.*')
             ->get();

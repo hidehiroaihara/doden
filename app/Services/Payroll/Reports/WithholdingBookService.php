@@ -25,9 +25,9 @@ class WithholdingBookService
                 }
             })
             ->with('employeePayroll:id,user_id,employee_no')
-            ->orderByDesc('is_active')
-            ->orderBy('name')
-            ->get(['id', 'name', 'is_active'])
+            ->orderByDesc('users.is_active')
+            ->orderByEmployeeNo()
+            ->get(['users.id', 'users.name', 'users.is_active'])
             ->map(fn (User $u) => [
                 'id' => $u->id,
                 'name' => $u->name,

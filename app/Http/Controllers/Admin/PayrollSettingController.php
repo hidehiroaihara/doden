@@ -17,8 +17,10 @@ use App\Models\JobTitle;
 use App\Models\PayrollRun;
 use App\Models\LeaveType;
 use App\Models\PayItemMaster;
+use App\Models\PensionFund;
 use App\Models\ResidentTaxMunicipality;
 use App\Models\Setting;
+use App\Support\LaborInsuranceRates;
 use App\Support\PayrollMasterSync;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +40,10 @@ class PayrollSettingController extends Controller
         $attendanceItems = AttendanceItemMaster::orderBy('sort_order')->orderBy('id')->get();
 
         $locations = BusinessLocation::orderBy('sort_order')->orderBy('id')
-            ->with(['insuranceRateSets' => fn ($q) => $q->orderByDesc('effective_from')->with('rates')])
+            ->with([
+                'insuranceRateSets' => fn ($q) => $q->orderByDesc('effective_from')->with('rates'),
+                'pensionFunds' => fn ($q) => $q->with(['rates' => fn ($r) => $r->orderByDesc('effective_from')]),
+            ])
             ->get();
 
         return Inertia::render('Admin/Payroll/Settings/Index', [
@@ -728,18 +733,44 @@ class PayrollSettingController extends Controller
 
         DB::transaction(function () use ($data) {
             $set = InsuranceRateSet::create($data);
-            // 既定の保険種別を0%で用意（画面で改定入力）
-            foreach (['health', 'nursing', 'child_support', 'pension', 'child_contribution', 'employment', 'accident'] as $kind) {
+            $location = BusinessLocation::find($data['business_location_id']);
+            $date = $set->effective_from?->toDateString() ?? now()->toDateString();
+
+            // 労災・雇用は事業所の業種（＋メリット制）から適用開始日時点の料率を自動セット。
+            // 他の保険種別は0で用意し、画面で改定入力（協会けんぽは「都道府県料率を反映」）。
+            $laborDefaults = $this->laborRateDefaults($location, $date);
+
+            foreach (['health', 'nursing', 'child_support', 'pension', 'child_contribution', 'pension_fund', 'employment', 'accident'] as $kind) {
                 InsuranceRate::create([
                     'insurance_rate_set_id' => $set->id,
                     'kind' => $kind,
-                    'employee_rate' => 0,
-                    'employer_rate' => 0,
+                    'employee_rate' => $laborDefaults[$kind]['employee'] ?? 0,
+                    'employer_rate' => $laborDefaults[$kind]['employer'] ?? 0,
                 ]);
             }
         });
 
-        return back()->with('success', '保険料率セットを追加しました。料率を入力して保存してください。');
+        return back()->with('success', '保険料率セットを追加しました。労災・雇用は業種から自動反映済みです。他の料率を入力して保存してください。');
+    }
+
+    /**
+     * 事業所の業種（＋労災メリット制）から、労災・雇用の料率初期値(/1,000)を返す。
+     *
+     * @return array<string, array{employee: float, employer: float}>
+     */
+    private function laborRateDefaults(?BusinessLocation $location, string $date): array
+    {
+        $defaults = [];
+
+        if ($location && ($location->accident_industry_code || $location->accident_merit_enabled)) {
+            $defaults['accident'] = ['employee' => 0.0, 'employer' => $location->accidentEmployerRate($date)];
+        }
+
+        if ($location && $location->employment_industry_type) {
+            $defaults['employment'] = LaborInsuranceRates::employmentRates($location->employment_industry_type, $date);
+        }
+
+        return $defaults;
     }
 
     public function destroyInsuranceSet(InsuranceRateSet $insuranceSet)
@@ -789,6 +820,240 @@ class PayrollSettingController extends Controller
         });
 
         return back()->with('success', "協会けんぽ（{$location->prefecture}・{$date}）の料率を反映しました。厚生年金・拠出金の標準値もセットしました。内容をご確認ください。");
+    }
+
+    /**
+     * MFクラウド準拠の社会保険セクション（健康保険 / 厚生年金保険 / 厚生年金基金）を一括保存する。
+     * セクション単位で送信されるが、事業所メタ項目と最新料率セットの料率をまとめて更新する。
+     */
+    public function updateSocialInsuranceConfig(Request $request, BusinessLocation $location)
+    {
+        $data = $request->validate([
+            'section' => ['required', 'in:health,pension'],
+
+            // 健康保険
+            'health_insurance_type' => ['nullable', 'string', 'in:kyokai,kumiai,kokuho'],
+            'prefecture' => ['nullable', 'string', 'max:20'],
+            'health_union_name' => ['nullable', 'string', 'max:255'],
+            'health_office_symbol' => ['nullable', 'string', 'max:100'],
+
+            // 厚生年金保険
+            'pension_jurisdiction' => ['nullable', 'string', 'max:100'],
+            'pension_office_number' => ['nullable', 'string', 'max:100'],
+            'pension_office_symbol' => ['nullable', 'string', 'max:100'],
+
+            // 料率（kind => {employee_rate, employer_rate}）。省略された kind は更新しない
+            'rates' => ['array'],
+            'rates.*.employee_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+            'rates.*.employer_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+        ]);
+
+        $section = $data['section'];
+
+        // セクションごとに更新対象の事業所メタ項目・料率 kind を限定する
+        $metaByCategory = [
+            'health' => ['health_insurance_type', 'prefecture', 'health_union_name', 'health_office_symbol'],
+            'pension' => ['pension_jurisdiction', 'pension_office_number', 'pension_office_symbol'],
+        ];
+        $allowedKindsByCategory = [
+            'health' => ['health', 'nursing', 'child_support'],
+            'pension' => ['pension', 'child_contribution'],
+        ];
+
+        DB::transaction(function () use ($location, $data, $section, $metaByCategory, $allowedKindsByCategory) {
+            $meta = [];
+            foreach ($metaByCategory[$section] as $field) {
+                if (array_key_exists($field, $data)) {
+                    $meta[$field] = $data[$field];
+                }
+            }
+            if ($meta !== []) {
+                $location->update($meta);
+            }
+
+            $set = $location->insuranceRateSets()->orderByDesc('effective_from')->first();
+            if ($set) {
+                $allowed = $allowedKindsByCategory[$section];
+                foreach ($data['rates'] ?? [] as $kind => $row) {
+                    if (! in_array($kind, $allowed, true)) {
+                        continue;
+                    }
+                    InsuranceRate::updateOrCreate(
+                        ['insurance_rate_set_id' => $set->id, 'kind' => $kind],
+                        [
+                            'employee_rate' => $row['employee_rate'],
+                            'employer_rate' => $row['employer_rate'],
+                        ],
+                    );
+                }
+            }
+        });
+
+        $labels = ['health' => '健康保険', 'pension' => '厚生年金保険'];
+
+        return back()->with('success', "{$labels[$section]}を更新しました。");
+    }
+
+    /**
+     * 労働保険（労災・雇用）の事業所情報をセクション別に更新する（MFクラウド準拠モーダル保存）。
+     * 業種変更時は最新料率セットへ自動反映する。
+     */
+    public function updateLaborInsuranceConfig(Request $request, BusinessLocation $location)
+    {
+        $section = $request->validate([
+            'section' => ['required', 'in:accident,employment'],
+        ])['section'];
+
+        if ($section === 'accident') {
+            $data = $request->validate([
+                'section' => ['required', 'in:accident,employment'],
+                'labor_bureau' => ['nullable', 'string', 'max:255'],
+                'labor_insurance_pref_code' => ['nullable', 'string', 'max:2'],
+                'labor_insurance_jurisdiction_code' => ['nullable', 'string', 'max:1'],
+                'labor_insurance_office_code' => ['nullable', 'string', 'max:2'],
+                'labor_insurance_serial_number' => ['nullable', 'string', 'max:6'],
+                'labor_insurance_branch_code' => ['nullable', 'string', 'max:3'],
+                'accident_business_desc' => ['nullable', 'string', 'max:255'],
+                'accident_industry_code' => ['nullable', 'string', 'max:64'],
+                'accident_merit_enabled' => ['boolean'],
+                'accident_merit_rate' => ['nullable', 'numeric', 'min:0', 'max:1000'],
+            ]);
+            $data['accident_merit_enabled'] = $data['accident_merit_enabled'] ?? false;
+            if (! $data['accident_merit_enabled']) {
+                $data['accident_merit_rate'] = null;
+            }
+        } else {
+            $data = $request->validate([
+                'section' => ['required', 'in:accident,employment'],
+                'employment_bureau' => ['nullable', 'string', 'max:255'],
+                'employment_office_number' => ['nullable', 'string', 'max:50'],
+                'employment_industry_type' => ['nullable', 'string', 'in:general,agri_sake_forestry,construction'],
+            ]);
+        }
+
+        DB::transaction(function () use ($location, $data, $section) {
+            $fields = $section === 'accident'
+                ? [
+                    'labor_bureau', 'labor_insurance_pref_code', 'labor_insurance_jurisdiction_code',
+                    'labor_insurance_office_code', 'labor_insurance_serial_number', 'labor_insurance_branch_code',
+                    'accident_business_desc', 'accident_industry_code', 'accident_merit_enabled', 'accident_merit_rate',
+                ]
+                : ['employment_bureau', 'employment_office_number', 'employment_industry_type'];
+
+            $meta = [];
+            foreach ($fields as $field) {
+                if (array_key_exists($field, $data)) {
+                    $meta[$field] = $data[$field];
+                }
+            }
+
+            $location->fill($meta);
+            if ($section === 'accident') {
+                $composed = $location->composeLaborInsuranceNumber();
+                if ($composed !== null) {
+                    $location->labor_insurance_number = $composed;
+                }
+            }
+            $location->save();
+            $location->syncLaborInsuranceRates();
+        });
+
+        $labels = ['accident' => '労災保険', 'employment' => '雇用保険'];
+
+        return back()->with('success', "{$labels[$section]}を更新しました。");
+    }
+
+    /**
+     * 厚生年金基金を新規登録する（MFクラウド準拠）。基金は1事業所に複数登録できる。
+     * 掛金料率は適用開始月単位で、給与・賞与別に被保険者負担／事業主負担（/1,000）を保持する。
+     */
+    public function storePensionFund(Request $request)
+    {
+        $data = $this->validatePensionFund($request);
+
+        DB::transaction(function () use ($data) {
+            $fund = PensionFund::create([
+                'business_location_id' => $data['business_location_id'],
+                'name' => $data['name'],
+                'number' => $data['number'] ?? null,
+                'office_number' => $data['office_number'] ?? null,
+                'sort_order' => PensionFund::where('business_location_id', $data['business_location_id'])->count(),
+            ]);
+            $this->syncPensionFundRates($fund, $data['rates'] ?? []);
+        });
+
+        return back()->with('success', '厚生年金基金を登録しました。');
+    }
+
+    /**
+     * 厚生年金基金を更新する（基金情報＋掛金料率をまとめて置き換える）。
+     */
+    public function updatePensionFund(Request $request, PensionFund $pensionFund)
+    {
+        $data = $this->validatePensionFund($request, requireLocation: false);
+
+        DB::transaction(function () use ($pensionFund, $data) {
+            $pensionFund->update([
+                'name' => $data['name'],
+                'number' => $data['number'] ?? null,
+                'office_number' => $data['office_number'] ?? null,
+            ]);
+            $pensionFund->rates()->delete();
+            $this->syncPensionFundRates($pensionFund, $data['rates'] ?? []);
+        });
+
+        return back()->with('success', '厚生年金基金を更新しました。');
+    }
+
+    public function destroyPensionFund(PensionFund $pensionFund)
+    {
+        $pensionFund->delete();
+
+        return back()->with('success', '厚生年金基金を削除しました。');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validatePensionFund(Request $request, bool $requireLocation = true): array
+    {
+        return $request->validate([
+            'business_location_id' => [$requireLocation ? 'required' : 'nullable', 'exists:business_locations,id'],
+            'name' => ['required', 'string', 'max:255'],
+            'number' => ['nullable', 'string', 'max:100'],
+            'office_number' => ['nullable', 'string', 'max:100'],
+            'rates' => ['array'],
+            'rates.*.effective_from' => ['required', 'date'],
+            'rates.*.salary_employee_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+            'rates.*.salary_employer_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+            'rates.*.bonus_employee_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+            'rates.*.bonus_employer_rate' => ['required', 'numeric', 'min:0', 'max:1000'],
+        ]);
+    }
+
+    /**
+     * 掛金料率行を（適用開始月をユニークキーとして）登録する。
+     *
+     * @param  array<int, array<string, mixed>>  $rates
+     */
+    private function syncPensionFundRates(PensionFund $fund, array $rates): void
+    {
+        $seen = [];
+        foreach ($rates as $row) {
+            $from = \Illuminate\Support\Carbon::parse($row['effective_from'])->startOfMonth()->toDateString();
+            if (in_array($from, $seen, true)) {
+                continue;
+            }
+            $seen[] = $from;
+
+            $fund->rates()->create([
+                'effective_from' => $from,
+                'salary_employee_rate' => $row['salary_employee_rate'],
+                'salary_employer_rate' => $row['salary_employer_rate'],
+                'bonus_employee_rate' => $row['bonus_employee_rate'],
+                'bonus_employer_rate' => $row['bonus_employer_rate'],
+            ]);
+        }
     }
 
     /** @return array<int, string> */

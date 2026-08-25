@@ -111,4 +111,70 @@ class PayrollReportService
                 ->keyBy(fn ($p) => $p->payrollRun->period_key),
         ];
     }
+
+    /**
+     * 年内の給与・賞与明細を「支払月（1〜12）」ごとにまとめる。
+     * 賞与はその支払月の列へ給与と合算する（賃金台帳の列は支払月単位）。
+     *
+     * @return array<int, Collection<int, Payslip>> 月(1..12) => その月に属する明細の集合
+     */
+    public function employeePayslipsByMonth(int $userId, int $year, ?int $locationId = null): array
+    {
+        $data = $this->employeeYearlyPayslips($userId, $year, $locationId);
+
+        $byMonth = [];
+        for ($m = 1; $m <= 12; $m++) {
+            $byMonth[$m] = collect();
+        }
+
+        foreach (['salary', 'bonus'] as $kind) {
+            foreach ($data[$kind] as $periodKey => $payslip) {
+                $month = (int) substr((string) $periodKey, 5, 2);
+                if ($month >= 1 && $month <= 12) {
+                    $byMonth[$month]->push($payslip);
+                }
+            }
+        }
+
+        return $byMonth;
+    }
+
+    /**
+     * 指定 period_key ごとに給与・賞与明細をまとめる。
+     *
+     * @param  array<int, string>  $periodKeys  'Y-m' の配列
+     * @return array<string, Collection<int, Payslip>>
+     */
+    public function employeePayslipsByPeriodKeys(int $userId, array $periodKeys, ?int $locationId = null): array
+    {
+        $periodKeys = array_values(array_unique($periodKeys));
+        $byKey = [];
+        foreach ($periodKeys as $key) {
+            $byKey[$key] = collect();
+        }
+
+        if ($periodKeys === []) {
+            return $byKey;
+        }
+
+        $payslips = Payslip::query()
+            ->where('user_id', $userId)
+            ->whereHas('payrollRun', function ($q) use ($periodKeys, $locationId) {
+                $q->whereIn('period_key', $periodKeys);
+                if ($locationId) {
+                    $q->where('business_location_id', $locationId);
+                }
+            })
+            ->with(['items', 'payrollRun:id,period_key,pay_type,payment_date'])
+            ->get();
+
+        foreach ($payslips as $payslip) {
+            $key = $payslip->payrollRun?->period_key;
+            if ($key && isset($byKey[$key])) {
+                $byKey[$key]->push($payslip);
+            }
+        }
+
+        return $byKey;
+    }
 }

@@ -112,6 +112,7 @@ class AdminPermission
         'admin.payroll.settings.deduction-items'  => ['payroll', 'write'],
         'admin.payroll.settings.attendance-items' => ['payroll', 'write'],
         'admin.payroll.settings.insurance-rates'  => ['payroll', 'write'],
+        'admin.payroll.settings.locations.labor-insurance' => ['payroll', 'write'],
         'admin.payroll.settings.municipalities'   => ['payroll', 'write'],
         'admin.payroll.settings.closing-groups.store'   => ['payroll', 'write'],
         'admin.payroll.settings.closing-groups.update'  => ['payroll', 'write'],
@@ -130,6 +131,9 @@ class AdminPermission
         'admin.payroll.settings.attendance-items.destroy' => ['payroll', 'write'],
         'admin.payroll.settings.insurance-sets.store'    => ['payroll', 'write'],
         'admin.payroll.settings.insurance-sets.destroy'  => ['payroll', 'write'],
+        'admin.payroll.settings.pension-funds.store'     => ['payroll', 'write'],
+        'admin.payroll.settings.pension-funds.update'    => ['payroll', 'write'],
+        'admin.payroll.settings.pension-funds.destroy'   => ['payroll', 'write'],
 
         // 従業員給与情報 — 閲覧
         'admin.payroll.employees.index'           => ['payroll', 'read'],
@@ -179,6 +183,9 @@ class AdminPermission
         'admin.payroll.reports.summary.patterns.destroy' => ['payroll', 'write'],
         'admin.payroll.reports.wage-ledger'              => ['payroll', 'read'],
         'admin.payroll.reports.wage-ledger.pdf'          => ['payroll', 'read'],
+        'admin.payroll.reports.wage-ledger.csv'          => ['payroll', 'read'],
+        'admin.payroll.reports.wage-ledger.bulk-csv'     => ['payroll', 'read'],
+        'admin.payroll.reports.wage-ledger.bulk-pdf'     => ['payroll', 'read'],
         'admin.payroll.reports.withholding-book'         => ['payroll', 'read'],
         'admin.payroll.reports.withholding-book.pdf'     => ['payroll', 'read'],
         'admin.payroll.reports.roster'                   => ['payroll', 'read'],

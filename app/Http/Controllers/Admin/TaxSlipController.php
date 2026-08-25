@@ -28,7 +28,7 @@ class TaxSlipController extends Controller
             ->where('is_active', false)
             ->whereHas('employeePayroll')
             ->with(['employeePayroll.businessLocation:id,name'])
-            ->orderBy('name')
+            ->orderByEmployeeNo()
             ->get()
             ->map(fn (User $u) => [
                 'id' => $u->id,

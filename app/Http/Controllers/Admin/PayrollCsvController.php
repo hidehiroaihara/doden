@@ -131,7 +131,7 @@ class PayrollCsvController extends Controller
                 'items',
             ])
             ->get()
-            ->sortBy(fn (Payslip $p) => $p->user?->employeePayroll?->employee_no ?? '')
+            ->sortBy(fn (Payslip $p) => $p->user?->employeePayroll?->employee_no ?: '~', SORT_NATURAL)
             ->values();
     }
 

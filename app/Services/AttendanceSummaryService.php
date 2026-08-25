@@ -42,8 +42,8 @@ class AttendanceSummaryService
         $hasSchedule = $settings['hasSchedule'];
 
         $users ??= User::where('is_active', true)
-            ->orderBy('name')
-            ->get(['id', 'name', 'break_minutes']);
+            ->orderByEmployeeNo()
+            ->get(['users.id', 'users.name', 'users.break_minutes']);
 
         $monthAttendances = Attendance::with('attendanceBreaks')
             ->whereBetween('work_date', [$monthStart, $monthEnd])

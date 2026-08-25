@@ -127,7 +127,8 @@ class GeneratePayslipArchive implements ShouldQueue
                 }
             })
             ->join('users', 'users.id', '=', 'payslips.user_id')
-            ->orderBy('users.name')
+            ->leftJoin('employee_payrolls', 'employee_payrolls.user_id', '=', 'payslips.user_id')
+            ->orderByRaw('employee_payrolls.employee_no IS NULL, LENGTH(employee_payrolls.employee_no), employee_payrolls.employee_no ASC')
             ->select('payslips.*')
             ->get();
     }

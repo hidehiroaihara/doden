@@ -14,6 +14,11 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // MySQL 固有の ON UPDATE CURRENT_TIMESTAMP 挙動への対処。sqlite 等では不要。
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         // ON UPDATE なしの DEFAULT CURRENT_TIMESTAMP に変更
         DB::statement('ALTER TABLE attendance_breaks MODIFY COLUMN started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP');
 
@@ -23,6 +28,10 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() !== 'mysql') {
+            return;
+        }
+
         DB::statement('ALTER TABLE attendance_breaks MODIFY COLUMN started_at TIMESTAMP NOT NULL');
     }
 };

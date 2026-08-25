@@ -39,8 +39,8 @@ class YearEndAdjustmentController extends Controller
         $rows = User::query()
             ->whereHas('employeePayroll')
             ->with('employeePayroll:id,user_id,employee_no,tax_table')
-            ->orderByDesc('is_active')
-            ->orderBy('name')
+            ->orderByDesc('users.is_active')
+            ->orderByEmployeeNo()
             ->get()
             ->map(function (User $u) use ($year, $records) {
                 $agg = $this->aggregate($u->id, $year);

@@ -69,7 +69,7 @@ class FlatTaxReductionController extends Controller
             ->whereHas('employeePayroll')
             ->where('is_active', true)
             ->with('employeePayroll:id,user_id,employee_no,dependents_count,tax_table')
-            ->orderBy('name')
+            ->orderByEmployeeNo()
             ->get()
             ->map(function (User $u) use ($year, $measure) {
                 $ep = $u->employeePayroll;

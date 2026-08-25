@@ -63,7 +63,7 @@ class CommuteAllowanceController extends Controller
             })
             ->where('is_active', true)
             ->with(['employeePayroll.businessLocation:id,name'])
-            ->orderBy('name')
+            ->orderByEmployeeNo()
             ->get()
             ->map(function (User $u) {
                 $ep = $u->employeePayroll;

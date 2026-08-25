@@ -72,6 +72,7 @@ class TransferListController extends Controller
     {
         return $run->payslips()
             ->with(['user:id,name', 'user.employeePayroll'])
+            ->orderByEmployeeNo()
             ->get()
             ->map(function (Payslip $p) {
                 $ep = $p->user?->employeePayroll;

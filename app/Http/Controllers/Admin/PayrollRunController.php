@@ -94,6 +94,7 @@ class PayrollRunController extends Controller
                 'user.employeePayroll:id,user_id,employee_no,position,employment_type',
                 'items',
             ])
+            ->orderByEmployeeNo()
             ->get()
             ->map(fn (Payslip $p) => $this->presentPayslip($p));
 
@@ -485,8 +486,8 @@ class PayrollRunController extends Controller
         $inputs = BonusInput::where('payroll_run_id', $run->id)->get()->keyBy('user_id');
 
         return $this->eligibleEmployeesQuery($run)
-            ->orderBy('name')
-            ->get(['id', 'name'])
+            ->orderByEmployeeNo()
+            ->get(['users.id', 'users.name'])
             ->map(fn (User $u) => [
                 'user_id' => $u->id,
                 'user_name' => $u->name,

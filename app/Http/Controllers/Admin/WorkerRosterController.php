@@ -42,8 +42,8 @@ class WorkerRosterController extends Controller
         $rows = User::query()
             ->when(! $includeRetired, fn ($q) => $q->where('is_active', true))
             ->with(['employeePayroll.businessLocation:id,name'])
-            ->orderByDesc('is_active')
-            ->orderBy('name')
+            ->orderByDesc('users.is_active')
+            ->orderByEmployeeNo()
             ->get()
             ->map(fn (User $u) => [
                 'id' => $u->id,

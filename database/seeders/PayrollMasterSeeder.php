@@ -354,6 +354,7 @@ class PayrollMasterSeeder extends Seeder
                 'is_income_tax_target' => true,
                 'is_labor_insurance_target' => true,
                 'is_social_insurance_target' => true,
+                'is_fixed_wage' => true,
                 // MF準拠: 時給の支給項目では割増基礎・控除基礎は使用しない
                 'is_allowance_base' => false,
                 'is_deduction_base' => false,
@@ -373,6 +374,62 @@ class PayrollMasterSeeder extends Seeder
                 'is_social_insurance_target' => true,
                 // MF準拠: 通勤手当は端数処理「切り上げ」固定
                 'rounding' => 'ceil',
+            ]],
+
+            // ── どでん 運用で追加した時給の手当（初期データとして投入） ──
+            // 手入力連動・0円でも表示（show_zero=true）。ユーザー追加項目のため is_system=false（削除可）。
+            ['custom_wcnewgqg', '仕込み手当', 'custom', [
+                'calc_method' => 'custom',
+                'custom_formula' => $this->rateTimesQty('hourly2', '時給2', 'scheduled_time_prescribed_holiday', '所定時間（所定休日）'),
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
+            ]],
+            ['custom_hs456twe', '深夜手当', 'custom', [
+                'calc_method' => 'custom',
+                'custom_formula' => $this->numTimesQty(300, 'night_weekday', '深夜所定時間（平日）'),
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
+            ]],
+            ['custom_dmipwlfo', '祝日深夜手当', 'custom', [
+                'calc_method' => 'custom',
+                'custom_formula' => $this->numTimesQty(500, 'night_prescribed_holiday', '深夜所定時間（所定休日）'),
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
+            ]],
+            ['custom_mziof4i0', '紹介料', 'custom', [
+                'calc_method' => 'employee',
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
+            ]],
+            ['custom_xbxntm9o', '特別手当', 'custom', [
+                'calc_method' => 'employee',
+                'divisor_unit' => 'one',
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
+            ]],
+            ['custom_ra29jqqh', '所定休日手当', 'custom', [
+                'calc_method' => 'custom',
+                'custom_formula' => $this->numTimesQty(200, 'scheduled_time_prescribed_holiday', '所定時間（所定休日）'),
+                'is_income_tax_target' => true,
+                'is_labor_insurance_target' => true,
+                'is_social_insurance_target' => true,
+                'show_zero' => true,
+                'is_system' => false,
             ]],
         ];
     }
@@ -443,6 +500,21 @@ class PayrollMasterSeeder extends Seeder
     {
         return [
             ['t' => 'ref', 'kind' => 'basis', 'code' => $basisCode, 'label' => $basisLabel],
+            ['t' => 'op', 'value' => '*'],
+            ['t' => 'ref', 'kind' => 'attendance', 'code' => $qtyCode, 'label' => $qtyLabel],
+        ];
+    }
+
+    /**
+     * 「固定単価(円) × 勤怠数量」の custom_formula トークン列を返す。
+     * 例: 300円 × 深夜所定時間（平日）。
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function numTimesQty(int|float $amount, string $qtyCode, string $qtyLabel): array
+    {
+        return [
+            ['t' => 'num', 'value' => $amount],
             ['t' => 'op', 'value' => '*'],
             ['t' => 'ref', 'kind' => 'attendance', 'code' => $qtyCode, 'label' => $qtyLabel],
         ];

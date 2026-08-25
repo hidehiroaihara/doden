@@ -82,4 +82,22 @@ class Payslip extends Model
     {
         return $this->items()->where('item_type', 'attendance');
     }
+
+    /**
+     * 従業員番号（employee_payrolls.employee_no）の自然順で並べる。未設定は末尾。
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<Payslip>  $query
+     */
+    public function scopeOrderByEmployeeNo($query)
+    {
+        if (empty($query->getQuery()->columns)) {
+            $query->select('payslips.*');
+        }
+
+        return $query
+            ->leftJoin('employee_payrolls as ep_sort', 'ep_sort.user_id', '=', 'payslips.user_id')
+            ->orderByRaw("(ep_sort.employee_no IS NULL OR ep_sort.employee_no = '')")
+            ->orderByRaw('LENGTH(ep_sort.employee_no)')
+            ->orderBy('ep_sort.employee_no');
+    }
 }

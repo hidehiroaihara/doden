@@ -151,6 +151,7 @@ class SummaryReportController extends Controller
     {
         $payslips = $run->payslips()
             ->with(['user:id,name,department_id', 'user.department:id,name', 'user.employeePayroll:id,user_id,employee_no', 'items'])
+            ->orderByEmployeeNo()
             ->get();
 
         $payActive = PayItemMaster::pluck('is_active', 'code');
