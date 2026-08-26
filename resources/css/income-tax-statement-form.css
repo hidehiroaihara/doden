@@ -1,0 +1,475 @@
+/* 所得税徴収高計算書 — 画面プレビュー専用（.web-view） */
+
+.income-tax-statement-form.web-view.levied-income-tax-amount-statements-container {
+    position: relative;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    min-height: 33.4375em; /* 535px @ 16px — 背景画像と同じ高さ */
+    font-size: 16px;
+    margin: 0 auto;
+}
+
+.income-tax-statement-form.web-view .bg-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    min-width: 100%;
+    z-index: 0;
+}
+
+.income-tax-statement-form.web-view .bg-container img {
+    display: block;
+    width: 100%;
+    min-width: 100%;
+    max-width: 100%;
+    height: auto;
+}
+
+.income-tax-statement-form.web-view .row-container {
+    position: relative;
+    z-index: 1;
+    min-height: 25em;
+    font-size: 18px;
+    color: #000;
+    pointer-events: none;
+}
+
+.income-tax-statement-form.web-view .row-container .number {
+    display: inline-block;
+    text-align: center;
+}
+
+.income-tax-statement-form.web-view .row-container .number {
+    width: 1em;
+}
+
+/* row-01（MF web-view そのまま・absolute 不使用） */
+.income-tax-statement-form.web-view .row-container .row-01 .column-annual-year {
+    display: inline-block;
+    margin-bottom: 0.625em;
+    padding-top: 1.37em;
+    padding-left: 6.95em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-01 .column-tax-office-name {
+    display: inline-block;
+    width: 6.85em;
+    padding-left: 2.5em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-01 .column-tax-office-number {
+    display: inline-block;
+    padding-left: 3.43em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-01 .column-tax-office-number .number {
+    width: 1;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .number,
+.income-tax-statement-form.web-view .row-container .row-03 .number,
+.income-tax-statement-form.web-view .row-container .row-05 .number,
+.income-tax-statement-form.web-view .row-container .row-06 .number {
+    display: inline-block;
+    width: 0.9253em; /* 1.0275em @ 16px → 18px */
+    vertical-align: top;
+}
+
+/* row-02（MF web-view・absolute 不使用・18px基準） */
+.income-tax-statement-form.web-view .row-container .row-02 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 4.0956em; /* 4.5625em @ 16px */
+    margin-top: -0.2em;
+    width: 29.5054em; /* 各 column 幅の合計 */
+    height: 1.3333em; /* 1.5em @ 16px */
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .row-column-1 {
+    width: 5.6em; /* 6.165em @ 16px */
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .row-column-2 {
+    width: 4.5667em; /* 5.1375em @ 16px */
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .row-column-3 {
+    width: 10.0467em; /* 11.3025em @ 16px */
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .column-total-payroll-tax-amount.row-column-3 .number {
+    width: 0.929em; /* 11桁分を column 幅に収める */
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .row-column-4 {
+    width: 9.292em; /* 10.275em @ 16px */
+    margin-left: 0.13em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .number {
+    display: inline-block;
+    width: 0.9253em; /* 1.0275em @ 16px → 18px */
+    vertical-align: top;
+}
+
+/* row-05（退職手当等・row-02/03 と同様） */
+.income-tax-statement-form.web-view .row-container .row-05 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 4.0956em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 .row-column-1 {
+    width: 5.6em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 .row-column-2 {
+    width: 4.5667em;
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 .row-column-3 {
+    width: 10.0467em;
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 .column-total-retirement-allowance-tax-amount.row-column-3 .number {
+    width: 0.929em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-05 .row-column-4 {
+    width: 9.292em;
+    margin-left: 0.13em;
+}
+
+/* row-06（税理士等の報酬・row-02/03 と同様） */
+.income-tax-statement-form.web-view .row-container .row-06 .number {
+    display: inline-block;
+    width: 0.9253em;
+    vertical-align: top;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 4.0956em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 .row-column-1 {
+    width: 5.6em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 .row-column-2 {
+    width: 4.5667em;
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 .row-column-3 {
+    width: 10.0467em;
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 .column-total-professional-fee-tax-amount.row-column-3 .number {
+    width: 0.929em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-06 .row-column-4 {
+    width: 9.292em;
+    margin-left: 0.13em;
+}
+
+/* row-03（row-02 と同様・absolute 不使用・18px基準） */
+.income-tax-statement-form.web-view .row-container .row-03 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 4.0956em; /* 4.5625em @ 16px */
+    width: 29.5054em; /* 各 column 幅の合計 */
+    height: 1.3333em; /* 1.5em @ 16px */
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .row-column-1 {
+    width: 5.6em; /* 6.165em @ 16px */
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .row-column-2 {
+    width: 4.5667em; /* 5.1375em @ 16px */
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .row-column-3 {
+    width: 10.0467em; /* 11.3025em @ 16px */
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .column-total-bonus-tax-amount.row-column-3 .number {
+    width: 0.929em; /* 11桁分を column 幅に収める */
+}
+
+.income-tax-statement-form.web-view .row-container .row-03 .row-column-4 {
+    width: 9.292em; /* 10.275em @ 16px */
+    margin-left: 0.13em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .number {
+    display: inline-block;
+    width: 0.9253em; /* 1.0275em @ 16px → 18px */
+    vertical-align: top;
+}
+
+/* row-04（日雇・支払年月日なし・18px基準） */
+.income-tax-statement-form.web-view .row-container .row-04 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 9.7111em; /* 10.7em @ 16px */
+    width: 24em; /* 27em @ 16px */
+    height: 1.3333em; /* 1.5em @ 16px */
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .row-column-1 {
+    width: 0;
+    overflow: hidden;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .row-column-2 {
+    width: 4.5667em; /* 5.1375em @ 16px */
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .row-column-3 {
+    width: 10.0467em; /* 11.3025em @ 16px */
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .column-total-day-laborer-payroll-tax-amount.row-column-3 .number {
+    width: 0.929em; /* 11桁分を column 幅に収める */
+}
+
+.income-tax-statement-form.web-view .row-container .row-04 .row-column-4 {
+    width: 9.292em; /* 10.275em @ 16px */
+    margin-left: 0.13em;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .number,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-08 .number,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-09 .number,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-10 .number,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-11 .number,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-12 .number {
+    display: inline-block;
+    width: 0.9253em;
+    vertical-align: top;
+}
+
+/* bottom-row（row-07〜12・absolute 不使用・18px基準） */
+.income-tax-statement-form.web-view .row-container .bottom-row {
+    position: static;
+}
+
+/* row-07（役員賞与・row-02/03 と同様） */
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 4.0956em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .row-column-1 {
+    width: 5.6em;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .row-column-2 {
+    width: 4.5667em;
+    margin-left: -0.08em;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .row-column-3 {
+    width: 10.0467em;
+    margin-left: 0.04em;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .column-total-executive-bonus-tax-amount.row-column-3 .number {
+    width: 0.929em;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .row-column-4 {
+    width: 9.292em;
+    margin-left: 0.13em;
+}
+
+/* row-08〜11（税額列のみ） */
+.income-tax-statement-form.web-view .row-container .bottom-row .row-08,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-09,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-10,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-11 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 24.1644em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-08 > div,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-09 > div,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-10 > div,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-11 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-08 .row-column-4,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-09 .row-column-4,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-10 .row-column-4,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-11 .row-column-4 {
+    width: 9.292em;
+    margin-left: 0.13em;
+}
+
+/* row-12（合計・¥ 付き） */
+.income-tax-statement-form.web-view .row-container .bottom-row .row-12 {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: flex-start;
+    margin-left: 22.6511em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-12 > div {
+    display: block;
+    flex: 0 0 auto;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.income-tax-statement-form.web-view .row-container .bottom-row .row-12 .column-total-income-tax-amount {
+    width: 10.96em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-02 .column-payroll-paid-start-at,
+.income-tax-statement-form.web-view .row-container .row-03 .column-bonus-paid-start-at,
+.income-tax-statement-form.web-view .row-container .row-05 .column-retirement-allowance-paid-start-at,
+.income-tax-statement-form.web-view .row-container .row-06 .column-professional-fee-paid-start-at,
+.income-tax-statement-form.web-view .row-container .bottom-row .row-07 .column-executive-bonus-paid-start-at {
+    text-align: left;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-tel-block > div {
+    display: inline-block;
+}
+
+/* row-13/14 は順次調整（暫定 absolute） */
+.income-tax-statement-form.web-view .row-container .row-13,
+.income-tax-statement-form.web-view .row-container .row-14 {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 {
+    top: 12.625em; /* y=330 支払者 */
+    left: 2.8em;
+    width: 19em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 > div {
+    font-size: 0.75em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-tel-block {
+    padding-top: 0.35em;
+    padding-left: 13.6em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-withholding-agent-tel1,
+.income-tax-statement-form.web-view .row-container .row-13 .column-withholding-agent-tel2 {
+    width: 3.15em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-withholding-agent-tel3 {
+    width: 3.4em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-withholding-agent-address {
+    padding-top: 0.3em;
+    padding-left: 0.5em;
+    height: 3em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-withholding-agent-name {
+    padding-left: 2.5em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-13 .column-summary {
+    padding-left: 0.7em;
+    padding-top: 1.25em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-14 {
+    top: 4.6em;
+    left: 34.43em;
+    width: 4em;
+}
+
+.income-tax-statement-form.web-view .row-container .row-14 .number {
+    width: 0.95em;
+}

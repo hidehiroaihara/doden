@@ -191,6 +191,7 @@ class AdminPermission
         'admin.payroll.reports.roster'                   => ['payroll', 'read'],
         'admin.payroll.reports.roster.pdf'               => ['payroll', 'read'],
         'admin.payroll.reports.income-tax-statement'     => ['payroll', 'read'],
+        'admin.payroll.reports.income-tax-statement.preview' => ['payroll', 'read'],
         'admin.payroll.reports.income-tax-statement.pdf' => ['payroll', 'read'],
         'admin.payroll.reports.commute'                  => ['payroll', 'read'],
         'admin.payroll.reports.commute.csv'              => ['payroll', 'read'],

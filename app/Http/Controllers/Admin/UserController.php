@@ -708,8 +708,11 @@ class UserController extends Controller
         $withParking = ['car', 'motorbike', 'bicycle'];          // 交通用具のみ駐車場あり
 
         DB::transaction(function () use ($data, $user, $withDistance, $withParking) {
+            $routes = array_values($data['routes'] ?? []);
+            $hasByWorkdays = collect($routes)->contains(fn ($r) => ($r['condition'] ?? '') === 'by_workdays');
+
             $user->commuteRoutes()->delete();
-            foreach (array_values($data['routes'] ?? []) as $i => $r) {
+            foreach ($routes as $i => $r) {
                 $type = $r['transport_type'];
                 $hasDistance = in_array($type, $withDistance, true);
                 $usesParking = in_array($type, $withParking, true) && (bool) ($r['uses_parking'] ?? false);
@@ -723,7 +726,7 @@ class UserController extends Controller
                     'one_way_distance_km' => $hasDistance ? (float) ($r['one_way_distance_km'] ?? 0) : 0,
                     'condition' => $r['condition'],
                     'payment_months' => $r['condition'] === 'fixed' ? array_values($r['payment_months'] ?? []) : null,
-                    'attendance_item_code' => $r['condition'] === 'by_workdays' ? ($r['attendance_item_code'] ?? null) : null,
+                    'attendance_item_code' => $hasByWorkdays ? ($r['attendance_item_code'] ?? null) : null,
                     'amount' => (int) ($r['amount'] ?? 0),
                     'payment_method' => $r['payment_method'],
                     'cap_amount' => $r['cap_amount'] ?? null,

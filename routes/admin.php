@@ -214,7 +214,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
 
         // 帳票: 所得税徴収高計算書（通常／納特）
         Route::get('payroll/reports/income-tax-statement', [IncomeTaxStatementController::class, 'show'])->name('payroll.reports.income-tax-statement');
+        Route::get('payroll/reports/income-tax-statement/preview', [IncomeTaxStatementController::class, 'preview'])->name('payroll.reports.income-tax-statement.preview');
         Route::get('payroll/reports/income-tax-statement/pdf', [IncomeTaxStatementController::class, 'pdf'])->name('payroll.reports.income-tax-statement.pdf');
+        Route::put('payroll/reports/income-tax-statement/overrides', [IncomeTaxStatementController::class, 'updateOverrides'])->name('payroll.reports.income-tax-statement.overrides');
 
         // 帳票: 通勤手当一覧
         Route::get('payroll/reports/commute', [CommuteAllowanceController::class, 'show'])->name('payroll.reports.commute');

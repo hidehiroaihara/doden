@@ -1,0 +1,378 @@
+/* ブラウザ印刷プレビュー専用（.browser-print-view） — DomPDF: flex / aspect-ratio / inset 非対応 */
+
+.income-tax-statement-form.browser-print-view.levied-income-tax-amount-statements-container {
+    position: relative;
+    width: 728px;
+    height: 380px;
+    min-height: 380px;
+    max-width: 728px;
+    font-size: 16px;
+    overflow: hidden;
+}
+
+.income-tax-statement-form.browser-print-view .bg-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 728px;
+    height: 380px;
+    z-index: 0;
+}
+
+.income-tax-statement-form.browser-print-view .bg-container img {
+    display: block;
+    width: 728px;
+    height: 380px;
+}
+
+.income-tax-statement-form.browser-print-view .row-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 728px;
+    height: 380px;
+    z-index: 1;
+    min-height: 380px;
+    font-size: 18px;
+    color: #000;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .number {
+    display: inline-block;
+    text-align: center;
+    font-family: Helvetica, Arial, sans-serif;
+    font-weight: 500;
+    line-height: 1;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .number {
+    width: 1em;
+}
+
+/* row-01 */
+.income-tax-statement-form.browser-print-view .row-container .row-01 .column-annual-year {
+    display: inline-block;
+    margin-bottom: 0.915em;
+    padding-top: 1.3em;
+    padding-left: 7.15em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-01 .column-annual-year .number {
+    width: 0.7em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-01 .column-tax-office-name {
+    display: inline-block;
+    width: 6.85em;
+    padding-left: 2.5em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-01 .column-tax-office-number {
+    display: inline-block;
+    padding-left: 3.1em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-01 .column-tax-office-number .number {
+    width: 0.65em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-04 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .number {
+    width: 0.6em;
+    vertical-align: top;
+}
+
+/* row-02 */
+.income-tax-statement-form.browser-print-view .row-container .row-02 {
+    display: block;
+    margin-left: 4.2456em;
+    margin-top: -0.2em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .row-column-1 {
+    width: 5.6em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .row-column-4 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .row-column-4 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-04 .row-column-4 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .row-column-4 .number,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .row-column-4 .number,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .row-column-4 .number {
+    width: 0.59em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .row-column-2,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .row-column-2,
+.income-tax-statement-form.browser-print-view .row-container .row-04 .row-column-2,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .row-column-2,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .row-column-2,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .row-column-2 {
+    width: 4.5667em;
+    margin-left: -.41em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .row-column-3,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .row-column-3,
+.income-tax-statement-form.browser-print-view .row-container .row-04 .row-column-3,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .row-column-3,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .row-column-3,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .row-column-3 {
+    width: 10.0467em;
+    margin-left: -.3em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .row-04 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .row-column-4 {
+    width: 9.292em;
+    margin-left: -0.2em;
+}
+
+/* row-03 */
+.income-tax-statement-form.browser-print-view .row-container .row-03 {
+    display: block;
+    margin-left: 4.2456em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-03 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-03 .row-column-1 {
+    width: 5.6em;
+}
+
+/* row-04 */
+.income-tax-statement-form.browser-print-view .row-container .row-04 {
+    display: block;
+    margin-left: 9.8511em;
+    width: 24em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-04 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-04 .row-column-1 {
+    width: 0;
+    overflow: hidden;
+}
+
+/* row-05 */
+.income-tax-statement-form.browser-print-view .row-container .row-05 {
+    display: block;
+    margin-left: 4.2456em;
+    width: 29.5054em;
+    height: 1.3833em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-05 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-05 .row-column-1 {
+    width: 5.6em;
+}
+
+/* row-06 */
+.income-tax-statement-form.browser-print-view .row-container .row-06 {
+    display: block;
+    margin-left: 4.2456em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-06 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-06 .row-column-1 {
+    width: 5.6em;
+}
+
+/* bottom-row row-07〜12 */
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .number {
+    width: 0.6em;
+    vertical-align: top;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-08 .number,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-09 .number,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-10 .number,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-11 .number,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-12 .number {
+    width: 0.59em;
+    vertical-align: top;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 {
+    display: block;
+    margin-left: 4.2456em;
+    width: 29.5054em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .row-column-1 {
+    width: 5.6em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-08,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-09,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-10,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-11 {
+    display: block;
+    margin-left: 24.2844em;
+    height: 1.3233em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-08 > div,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-09 > div,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-10 > div,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-11 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-08 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-09 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-10 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-11 .row-column-4,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-12 .row-column-4 {
+    width: 9.292em;
+    margin-left: -0.11em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-12 {
+    display: block;
+    margin-left: 22.6511em;
+    height: 1.3333em;
+    white-space: nowrap;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-12 > div {
+    display: inline-block;
+    vertical-align: top;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-12 .column-total-income-tax-amount {
+    width: 10.96em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-02 .column-payroll-paid-start-at,
+.income-tax-statement-form.browser-print-view .row-container .row-03 .column-bonus-paid-start-at,
+.income-tax-statement-form.browser-print-view .row-container .row-05 .column-retirement-allowance-paid-start-at,
+.income-tax-statement-form.browser-print-view .row-container .row-06 .column-professional-fee-paid-start-at,
+.income-tax-statement-form.browser-print-view .row-container .bottom-row .row-07 .column-executive-bonus-paid-start-at {
+    text-align: left;
+}
+
+/* row-13/14 */
+.income-tax-statement-form.browser-print-view .row-container .row-13,
+.income-tax-statement-form.browser-print-view .row-container .row-14 {
+    position: absolute;
+    left: 0;
+    right: 0;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 {
+    top: 12.625em;
+    left: 2.8em;
+    width: 19em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 > div {
+    font-size: 0.75em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-tel-block {
+    padding-top: 0.35em;
+    padding-left: 13.5em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-tel-block > div {
+    display: inline-block;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-withholding-agent-tel1,
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-withholding-agent-tel2 {
+    width: 2.65em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-withholding-agent-tel3 {
+    width: 3.4em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-withholding-agent-address {
+    padding-top: 0.3em;
+    padding-left: 0.5em;
+    height: 3em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-withholding-agent-name {
+    padding-left: 2.5em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-13 .column-summary {
+    padding-left: 0.7em;
+    padding-top: 1.25em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-14 {
+    top: 4.55em;
+    left: 34.63em;
+    width: 4em;
+}
+
+.income-tax-statement-form.browser-print-view .row-container .row-14 .number {
+    width: 0.6em;
+}
+
+.income-tax-statement-form.browser-print-view .column-withholding-agent-address,
+.income-tax-statement-form.browser-print-view .column-withholding-agent-name,
+.income-tax-statement-form.browser-print-view .column-summary {
+    font-family: 'ipaexg', sans-serif;
+    font-weight: normal;
+}

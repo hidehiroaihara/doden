@@ -1,7 +1,7 @@
 import AdminLayout from '@/Layouts/AdminLayout';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
 import { Head, Link, router } from '@inertiajs/react';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import type {
     BusinessLocation, ClosingDateGroup, Department, EmployeeDependent, EmployeeLeave,
     EmploymentStatus, JobTitle, LeaveType, User, UserStatusHistory,
@@ -118,9 +118,9 @@ const PUBLIC_TRANSPORTS = ['train', 'bus'];        // 電車・バス: 距離/�
 const PARKING_TRANSPORTS = ['car', 'motorbike', 'bicycle']; // 交通用具: 距離＋駐車場
 const DISTANCE_TRANSPORTS = ['car', 'motorbike', 'bicycle', 'walk']; // 交通用具＋徒歩: 片道距離
 
-/** 通勤手段に応じた出発/到着ラベル */
+/** 通勤手段に応じた出発/到着ラベル（MF表記） */
 function placeLabels(transport: string): { from: string; to: string } {
-    if (transport === 'train') return { from: '乗車駅', to: '降車駅' };
+    if (transport === 'train') return { from: '出発駅', to: '到着駅' };
     if (transport === 'bus') return { from: '乗車停留所', to: '降車停留所' };
     return { from: '開始地点', to: '終了地点' };
 }
@@ -202,6 +202,530 @@ function emptyRoute(): CommuteRoute {
         parking_payment_method: 'cash',
         parking_cap_amount: null,
     };
+}
+
+function fmtYen(amount: number): string {
+    return `${amount.toLocaleString('ja-JP')}円`;
+}
+
+/** 数値入力の表示用。未設定・0 は空欄として扱う */
+function numInputDisplay(value: number | null | undefined | ''): number | '' {
+    return value === '' || value == null || value === 0 ? '' : value;
+}
+
+function fmtYenOptional(amount: number | null | undefined): string {
+    if (amount == null || amount === 0) return '';
+    return fmtYen(amount);
+}
+
+function attendanceItemDisplayLabel(code: string | null, items: AttendanceItemOption[]): string {
+    if (!code) return '未設定';
+    return items.find((a) => a.code === code)?.name ?? code;
+}
+
+/** サマリー表示用（全ルート共通の使用勤怠項目） */
+function summaryAttendanceItem(routes: CommuteRoute[], items: AttendanceItemOption[]): string {
+    if (routes.length === 0) return '未設定';
+    if (!routes.some((r) => r.condition === 'by_workdays')) return '未設定';
+    const code = routes.find((r) => r.condition === 'by_workdays')?.attendance_item_code ?? null;
+    return attendanceItemDisplayLabel(code, items);
+}
+
+function paymentMonthsLabel(months: number[]): string {
+    if (months.length === 0 || months.length === 12) return '毎月';
+    return months.map((m) => `${m}月`).join('、');
+}
+
+function routePath(from: string | null, to: string | null): string {
+    const parts = [from?.trim(), to?.trim()].filter(Boolean);
+    return parts.join(' ');
+}
+
+function transportSectionTitle(transport: string): string {
+    return PUBLIC_TRANSPORTS.includes(transport) ? '交通機関 通勤経路' : '交通用具 通勤経路';
+}
+
+function allowanceAmountLabel(
+    amount: number,
+    condition: string,
+    attendanceCode: string | null,
+    items: AttendanceItemOption[],
+    fixedSuffix = '',
+): string {
+    if (condition === 'by_workdays') {
+        return `${fmtYen(amount)} × ${attendanceItemDisplayLabel(attendanceCode, items)}`;
+    }
+    return fixedSuffix ? `${fmtYen(amount)}${fixedSuffix}` : fmtYen(amount);
+}
+
+function summarizeCategoryRoutes(
+    routes: CommuteRoute[],
+    items: AttendanceItemOption[],
+    pick: (r: CommuteRoute) => { amount: number; condition: string; attendanceCode: string | null },
+): string {
+    if (routes.length === 0) return '0円';
+
+    const byWorkdays = routes.find((r) => pick(r).condition === 'by_workdays');
+    if (byWorkdays) {
+        const { amount, condition, attendanceCode } = pick(byWorkdays);
+        return allowanceAmountLabel(amount, condition, attendanceCode, items);
+    }
+
+    const total = routes
+        .filter((r) => pick(r).condition === 'fixed')
+        .reduce((sum, r) => sum + pick(r).amount, 0);
+    if (total <= 0) return '0円';
+    return fmtYen(total);
+}
+
+function commuteSummary(routes: CommuteRoute[], items: AttendanceItemOption[]) {
+    const publicRoutes = routes.filter((r) => PUBLIC_TRANSPORTS.includes(r.transport_type));
+    const equipRoutes = routes.filter((r) => !PUBLIC_TRANSPORTS.includes(r.transport_type));
+    const parkingRoutes = routes.filter((r) => r.uses_parking && Number(r.parking_amount) > 0);
+
+    const limit = routes.find((r) => r.non_taxable_limit != null)?.non_taxable_limit ?? null;
+
+    return {
+        attendanceItem: summaryAttendanceItem(routes, items),
+        publicTransport: summarizeCategoryRoutes(publicRoutes, items, (r) => ({
+            amount: Number(r.amount),
+            condition: r.condition,
+            attendanceCode: r.attendance_item_code,
+        })),
+        equipment: summarizeCategoryRoutes(equipRoutes, items, (r) => ({
+            amount: Number(r.amount),
+            condition: r.condition,
+            attendanceCode: r.attendance_item_code,
+        })),
+        parking: parkingRoutes.length === 0
+            ? '0円'
+            : allowanceAmountLabel(
+                Number(parkingRoutes[0].parking_amount),
+                parkingRoutes[0].parking_condition,
+                parkingRoutes[0].parking_attendance_item_code,
+                items,
+            ),
+        nonTaxableLimit: limit != null ? `${limit.toLocaleString('ja-JP')}円 / 月` : '全額非課税',
+    };
+}
+
+/** MF風テーブル（閲覧専用） */
+function MfViewRow({ label, value, help }: { label: string; value: ReactNode; help?: boolean }) {
+    return (
+        <tr className="border-b border-gray-200 last:border-b-0">
+            <th className="w-[46%] border-r border-gray-200 bg-gray-50 px-4 py-2.5 text-left text-sm font-normal text-gray-800">
+                <span className="inline-flex items-center gap-1">
+                    {label}
+                    {help && <i className="fa-regular fa-circle-question text-xs text-blue-500" aria-hidden />}
+                </span>
+            </th>
+            <td className="px-4 py-2.5 text-sm text-gray-800">{value === '' || value == null ? '\u00a0' : value}</td>
+        </tr>
+    );
+}
+
+function MfViewSectionHeader({ title }: { title: string }) {
+    return (
+        <tr>
+            <th colSpan={2} className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-left text-sm font-normal text-gray-700">
+                {title}
+            </th>
+        </tr>
+    );
+}
+
+function MfViewTable({ children }: { children: ReactNode }) {
+    return (
+        <table className="w-full border-collapse border border-gray-200 text-sm">
+            <tbody>{children}</tbody>
+        </table>
+    );
+}
+
+const mfFieldClass = 'w-full max-w-md rounded border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500';
+
+/** MF風フォーム行（編集用・左ラベル／右入力） */
+function MfFormRow({ label, help, children }: { label: string; help?: boolean; children: ReactNode }) {
+    return (
+        <tr className="border-b border-gray-200 last:border-b-0">
+            <th className="w-[38%] border-r border-gray-200 bg-gray-50 px-4 py-2.5 text-left align-middle text-sm font-normal text-gray-800">
+                <span className="inline-flex items-center gap-1">
+                    {label}
+                    {help && <i className="fa-regular fa-circle-question text-xs text-blue-500" aria-hidden />}
+                </span>
+            </th>
+            <td className="px-4 py-2.5 align-middle text-sm text-gray-800">{children}</td>
+        </tr>
+    );
+}
+
+function MfFormSectionHeader({ title }: { title: string }) {
+    return (
+        <tr>
+            <td colSpan={2} className="border-b border-gray-200 bg-gray-100 px-4 py-2 text-sm text-gray-600">
+                {title}
+            </td>
+        </tr>
+    );
+}
+
+function MfFormTable({ children }: { children: ReactNode }) {
+    return (
+        <table className="w-full border-collapse text-sm">
+            <tbody>{children}</tbody>
+        </table>
+    );
+}
+
+function MfRadioGroup({
+    name,
+    value,
+    options,
+    onChange,
+}: {
+    name: string;
+    value: string;
+    options: LabelMap;
+    onChange: (v: string) => void;
+}) {
+    return (
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+            {Object.entries(options).map(([v, l]) => (
+                <label key={v} className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                    <input
+                        type="radio"
+                        name={name}
+                        value={v}
+                        checked={value === v}
+                        onChange={() => onChange(v)}
+                        className="border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    {l}
+                </label>
+            ))}
+        </div>
+    );
+}
+
+function MfYenInput({
+    value,
+    onChange,
+    placeholder,
+    disabled,
+}: {
+    value: number | '';
+    onChange: (v: number | null) => void;
+    placeholder?: string;
+    disabled?: boolean;
+}) {
+    return (
+        <div className="flex max-w-md items-center gap-2">
+            <input
+                type="number"
+                min="0"
+                disabled={disabled}
+                placeholder={placeholder}
+                className={`${mfFieldClass} flex-1`}
+                value={numInputDisplay(value)}
+                onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+            />
+            <span className="shrink-0 text-sm text-gray-600">円</span>
+        </div>
+    );
+}
+
+function CommuteEditTopFields({
+    routes,
+    attendanceItems,
+    onPatchAll,
+}: {
+    routes: CommuteRoute[];
+    attendanceItems: AttendanceItemOption[];
+    onPatchAll: (patch: Partial<CommuteRoute>) => void;
+}) {
+    const hasByWorkdays = routes.some((r) => r.condition === 'by_workdays');
+    const attendanceCode = hasByWorkdays ? (routes[0]?.attendance_item_code ?? null) : null;
+    const nonTaxableLimit = routes.find((r) => r.non_taxable_limit != null)?.non_taxable_limit ?? null;
+
+    return (
+        <div className="overflow-hidden rounded border border-gray-200">
+            <MfFormTable>
+                <MfFormRow label="使用勤怠項目" help>
+                    <select
+                        disabled={!hasByWorkdays}
+                        className={`${mfFieldClass} disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400`}
+                        value={attendanceCode ?? ''}
+                        onChange={(e) => onPatchAll({ attendance_item_code: e.target.value || null })}
+                    >
+                        <option value="">未設定</option>
+                        {attendanceItems.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
+                    </select>
+                </MfFormRow>
+                <MfFormRow label="非課税限度額">
+                    <MfYenInput
+                        value={numInputDisplay(nonTaxableLimit)}
+                        placeholder="全額非課税"
+                        onChange={(v) => onPatchAll({ non_taxable_limit: v })}
+                    />
+                </MfFormRow>
+            </MfFormTable>
+        </div>
+    );
+}
+
+function CommuteRouteEditForm({
+    route: r,
+    options,
+    attendanceItems,
+    onPatch,
+    onRemove,
+}: {
+    route: CommuteRoute;
+    options: Options;
+    attendanceItems: AttendanceItemOption[];
+    onPatch: (p: Partial<CommuteRoute>) => void;
+    onRemove: () => void;
+}) {
+    const labels = placeLabels(r.transport_type);
+    const hasDistance = DISTANCE_TRANSPORTS.includes(r.transport_type);
+    const hasParking = PARKING_TRANSPORTS.includes(r.transport_type);
+    const routeSection = PUBLIC_TRANSPORTS.includes(r.transport_type) ? '通勤経路' : '交通用具 通勤経路';
+
+    return (
+        <div className="flex overflow-hidden rounded border border-gray-200">
+            <div className="min-w-0 flex-1">
+                <MfFormTable>
+                    <MfFormSectionHeader title={routeSection} />
+                    <MfFormRow label="通勤手段">
+                        <select className={mfFieldClass} value={r.transport_type} onChange={(e) => onPatch({ transport_type: e.target.value })}>
+                            {Object.entries(options.transportTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                    </MfFormRow>
+                    <MfFormRow label={labels.from}>
+                        <input className={mfFieldClass} value={r.from_place ?? ''} onChange={(e) => onPatch({ from_place: e.target.value })} />
+                    </MfFormRow>
+                    <MfFormRow label={labels.to}>
+                        <input className={mfFieldClass} value={r.to_place ?? ''} onChange={(e) => onPatch({ to_place: e.target.value })} />
+                    </MfFormRow>
+                    {hasDistance && (
+                        <MfFormRow label="片道の通勤距離">
+                            <div className="flex max-w-md items-center gap-2">
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    className={`${mfFieldClass} flex-1`}
+                                    value={numInputDisplay(r.one_way_distance_km)}
+                                    onChange={(e) => onPatch({ one_way_distance_km: e.target.value === '' ? 0 : Number(e.target.value) })}
+                                />
+                                <span className="shrink-0 text-sm text-gray-600">km</span>
+                            </div>
+                        </MfFormRow>
+                    )}
+
+                    <MfFormSectionHeader title="通勤手当支給条件" />
+                    <MfFormRow label="支給条件">
+                        <MfRadioGroup
+                            name={`condition-${r.id ?? 'new'}`}
+                            value={r.condition}
+                            options={options.commuteConditions}
+                            onChange={(v) => onPatch({ condition: v })}
+                        />
+                    </MfFormRow>
+                    <MfFormRow label="支給月">
+                        {r.condition === 'by_workdays' ? (
+                            <select className={`${mfFieldClass} disabled:bg-gray-50`} disabled value="">
+                                <option value="">毎月</option>
+                            </select>
+                        ) : (
+                            <div>
+                                <div className="mb-1.5 flex flex-wrap gap-1.5">
+                                    {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
+                                        const on = r.payment_months.includes(m);
+                                        return (
+                                            <button
+                                                key={m}
+                                                type="button"
+                                                onClick={() => onPatch({
+                                                    payment_months: on
+                                                        ? r.payment_months.filter((x) => x !== m)
+                                                        : [...r.payment_months, m].sort((a, b) => a - b),
+                                                })}
+                                                className={`h-7 w-9 rounded border text-xs transition ${on ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                            >
+                                                {m}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <p className="text-xs text-gray-400">未選択の場合は毎月</p>
+                            </div>
+                        )}
+                    </MfFormRow>
+                    <MfFormRow label="支給額" help>
+                        <MfYenInput
+                            value={numInputDisplay(r.amount)}
+                            onChange={(v) => onPatch({ amount: v ?? 0 })}
+                        />
+                    </MfFormRow>
+                    <MfFormRow label="支払手段">
+                        <MfRadioGroup
+                            name={`payment-${r.id ?? 'new'}`}
+                            value={r.payment_method}
+                            options={options.commutePaymentMethods}
+                            onChange={(v) => onPatch({ payment_method: v })}
+                        />
+                    </MfFormRow>
+                    <MfFormRow label="上限支給額" help>
+                        <MfYenInput
+                            value={r.cap_amount ?? ''}
+                            placeholder="上限なし"
+                            onChange={(v) => onPatch({ cap_amount: v })}
+                        />
+                    </MfFormRow>
+
+                    {hasParking && (
+                        <>
+                            <MfFormSectionHeader title="通勤用の駐車場等" />
+                            <MfFormRow label="利用">
+                                <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                                    <input
+                                        type="checkbox"
+                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                        checked={r.uses_parking}
+                                        onChange={(e) => onPatch({ uses_parking: e.target.checked })}
+                                    />
+                                    利用している
+                                </label>
+                            </MfFormRow>
+                            {r.uses_parking && (
+                                <>
+                                    <MfFormRow label="支給条件">
+                                        <MfRadioGroup
+                                            name={`parking-condition-${r.id ?? 'new'}`}
+                                            value={r.parking_condition}
+                                            options={options.commuteConditions}
+                                            onChange={(v) => onPatch({ parking_condition: v })}
+                                        />
+                                    </MfFormRow>
+                                    <MfFormRow label="支給月">
+                                        {r.parking_condition === 'by_workdays' ? (
+                                            <select className={`${mfFieldClass} disabled:bg-gray-50`} disabled value="">
+                                                <option value="">毎月</option>
+                                            </select>
+                                        ) : (
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
+                                                    const on = r.parking_payment_months.includes(m);
+                                                    return (
+                                                        <button
+                                                            key={m}
+                                                            type="button"
+                                                            onClick={() => onPatch({
+                                                                parking_payment_months: on
+                                                                    ? r.parking_payment_months.filter((x) => x !== m)
+                                                                    : [...r.parking_payment_months, m].sort((a, b) => a - b),
+                                                            })}
+                                                            className={`h-7 w-9 rounded border text-xs transition ${on ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                                        >
+                                                            {m}
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </MfFormRow>
+                                    <MfFormRow label="支給額">
+                                        <MfYenInput
+                                            value={numInputDisplay(r.parking_amount)}
+                                            onChange={(v) => onPatch({ parking_amount: v ?? 0 })}
+                                        />
+                                    </MfFormRow>
+                                    <MfFormRow label="支払手段">
+                                        <MfRadioGroup
+                                            name={`parking-payment-${r.id ?? 'new'}`}
+                                            value={r.parking_payment_method}
+                                            options={options.commutePaymentMethods}
+                                            onChange={(v) => onPatch({ parking_payment_method: v })}
+                                        />
+                                    </MfFormRow>
+                                    <MfFormRow label="上限支給額">
+                                        <MfYenInput
+                                            value={r.parking_cap_amount ?? ''}
+                                            placeholder="上限なし"
+                                            onChange={(v) => onPatch({ parking_cap_amount: v })}
+                                        />
+                                    </MfFormRow>
+                                    {r.parking_condition === 'by_workdays' && (
+                                        <MfFormRow label="使用する勤怠項目">
+                                            <select
+                                                className={mfFieldClass}
+                                                value={r.parking_attendance_item_code ?? ''}
+                                                onChange={(e) => onPatch({ parking_attendance_item_code: e.target.value || null })}
+                                            >
+                                                <option value="">出勤日数（平日）</option>
+                                                {attendanceItems.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
+                                            </select>
+                                        </MfFormRow>
+                                    )}
+                                </>
+                            )}
+                        </>
+                    )}
+                </MfFormTable>
+            </div>
+            <div className="flex shrink-0 items-center border-l border-gray-200 px-4">
+                <button type="button" onClick={onRemove} className="whitespace-nowrap text-sm text-red-500 transition hover:text-red-600">
+                    削除
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function CommuteSummaryView({ routes, attendanceItems }: { routes: CommuteRoute[]; attendanceItems: AttendanceItemOption[] }) {
+    const s = commuteSummary(routes, attendanceItems);
+    return (
+        <MfViewTable>
+            <MfViewRow label="使用勤怠項目" value={s.attendanceItem} />
+            <MfViewRow label="1ヶ月あたりの支給額（交通機関）" value={s.publicTransport} help />
+            <MfViewRow label="1ヶ月あたりの支給額（交通用具）" value={s.equipment} help />
+            <MfViewRow label="1ヶ月あたりの支給額（駐車場等）" value={s.parking} help />
+            <MfViewRow label="非課税限度額" value={s.nonTaxableLimit} />
+        </MfViewTable>
+    );
+}
+
+function CommuteRouteView({
+    route: r,
+    options,
+}: {
+    route: CommuteRoute;
+    options: Options;
+}) {
+    return (
+        <MfViewTable>
+            <MfViewSectionHeader title={transportSectionTitle(r.transport_type)} />
+            <MfViewRow label="通勤手段" value={options.transportTypes[r.transport_type] ?? r.transport_type} />
+            <MfViewRow label="経路" value={routePath(r.from_place, r.to_place)} />
+            <MfViewSectionHeader title="通勤手当支給条件" />
+            <MfViewRow label="支給条件" value={options.commuteConditions[r.condition] ?? r.condition} />
+            <MfViewRow label="支給月" value={paymentMonthsLabel(r.payment_months)} />
+            <MfViewRow label="支給額" value={r.condition === 'fixed' ? fmtYen(Number(r.amount)) : fmtYenOptional(r.amount)} />
+            <MfViewRow label="支払手段" value={options.commutePaymentMethods[r.payment_method] ?? r.payment_method} />
+            <MfViewRow label="上限支給額" value={r.cap_amount != null ? fmtYen(r.cap_amount) : ''} />
+            {r.uses_parking && (
+                <>
+                    <MfViewSectionHeader title="通勤用の駐車場等" />
+                    <MfViewRow label="支給条件" value={options.commuteConditions[r.parking_condition] ?? r.parking_condition} />
+                    <MfViewRow label="支給月" value={paymentMonthsLabel(r.parking_payment_months)} />
+                    <MfViewRow label="支給額" value={fmtYenOptional(r.parking_amount)} />
+                    <MfViewRow label="支払手段" value={options.commutePaymentMethods[r.parking_payment_method] ?? r.parking_payment_method} />
+                    <MfViewRow label="上限支給額" value={r.parking_cap_amount != null ? fmtYen(r.parking_cap_amount) : ''} />
+                </>
+            )}
+        </MfViewTable>
+    );
 }
 
 const STATUS_CONFIG: Record<EmploymentStatus, { label: string; badge: string }> = {
@@ -720,7 +1244,7 @@ function SalaryTab({
     const [data, setData] = useState<PayrollData>(payroll);
     const [itemValues, setItemValues] = useState<Record<number, number | ''>>(() => {
         const init: Record<number, number | ''> = {};
-        payItems.forEach((p) => { init[p.id] = payItemValues[p.id] ?? 0; });
+        payItems.forEach((p) => { init[p.id] = numInputDisplay(payItemValues[p.id]); });
         return init;
     });
     const [routes, setRoutes] = useState<CommuteRoute[]>(commuteRoutes);
@@ -728,14 +1252,38 @@ function SalaryTab({
 
     const set = <K extends keyof PayrollData>(k: K, v: PayrollData[K]) => setData((d) => ({ ...d, [k]: v }));
     const setItem = (id: number, v: number | '') => setItemValues((m) => ({ ...m, [id]: v }));
-    const patchRoute = (i: number, p: Partial<CommuteRoute>) => setRoutes((r) => r.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
-    const addRoute = () => setRoutes((r) => [...r, emptyRoute()]);
-    const removeRoute = (i: number) => setRoutes((r) => r.filter((_, idx) => idx !== i));
+    const patchRoute = (i: number, p: Partial<CommuteRoute>) => {
+        setRoutes((r) => {
+            const next = r.map((x, idx) => (idx === i ? { ...x, ...p } : x));
+            if (!next.some((x) => x.condition === 'by_workdays')) {
+                return next.map((x) => ({ ...x, attendance_item_code: null }));
+            }
+            return next;
+        });
+    };
+    const patchAllRoutes = (p: Partial<CommuteRoute>) => setRoutes((r) => r.map((x) => ({ ...x, ...p })));
+    const addRoute = () => setRoutes((r) => {
+        const hasByWorkdays = r.some((x) => x.condition === 'by_workdays');
+        const attendance = hasByWorkdays
+            ? (r.find((x) => x.condition === 'by_workdays')?.attendance_item_code ?? r[0]?.attendance_item_code ?? null)
+            : null;
+        const limit = r.find((x) => x.non_taxable_limit != null)?.non_taxable_limit ?? null;
+        return [...r, { ...emptyRoute(), attendance_item_code: attendance, non_taxable_limit: limit }];
+    });
+    const removeRoute = (i: number) => {
+        setRoutes((r) => {
+            const next = r.filter((_, idx) => idx !== i);
+            if (!next.some((x) => x.condition === 'by_workdays')) {
+                return next.map((x) => ({ ...x, attendance_item_code: null }));
+            }
+            return next;
+        });
+    };
 
     const cancel = () => {
         setData(payroll);
         const init: Record<number, number | ''> = {};
-        payItems.forEach((p) => { init[p.id] = payItemValues[p.id] ?? 0; });
+        payItems.forEach((p) => { init[p.id] = numInputDisplay(payItemValues[p.id]); });
         setItemValues(init);
         setRoutes(commuteRoutes);
         setEditing(false);
@@ -779,7 +1327,7 @@ function SalaryTab({
         <div>
             <label className={fieldLabel}>{label}</label>
             <div className="relative">
-                <input type="number" min="0" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={(data[k] as number | null) ?? ''} onChange={(e) => set(k, (e.target.value === '' ? null : Number(e.target.value)) as never)} />
+                <input type="number" min="0" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={numInputDisplay(data[k] as number | null)} onChange={(e) => set(k, (e.target.value === '' ? null : Number(e.target.value)) as never)} />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{suffix}</span>
             </div>
         </div>
@@ -845,7 +1393,7 @@ function SalaryTab({
                                                 <div className="relative w-44">
                                                     <input type="number" min="0" disabled={!editing}
                                                         className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`}
-                                                        value={(data[r.col] as number | null) ?? ''}
+                                                        value={numInputDisplay(data[r.col] as number | null)}
                                                         onChange={(e) => set(r.col, (e.target.value === '' ? 0 : Number(e.target.value)) as never)} />
                                                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
                                                 </div>
@@ -862,7 +1410,7 @@ function SalaryTab({
                                                 <div className="relative w-44">
                                                     <input type="number" min="0" disabled={!editing}
                                                         className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`}
-                                                        value={itemValues[p.id] ?? ''}
+                                                        value={numInputDisplay(itemValues[p.id] as number | '')}
                                                         onChange={(e) => setItem(p.id, e.target.value === '' ? '' : Number(e.target.value))} />
                                                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
                                                 </div>
@@ -881,164 +1429,37 @@ function SalaryTab({
                 <div className="border-b border-gray-100 px-5 py-3.5"><h3 className="flex items-center gap-2 text-sm font-bold text-gray-800"><i className="fa-solid fa-train-subway text-teal-600" /> 通勤手当</h3></div>
                 <div className="space-y-3 p-5">
                     {routes.length === 0 && !editing && <p className="text-sm text-gray-400">通勤手当は登録されていません。</p>}
-                    {routes.map((r, i) => {
-                        const labels = placeLabels(r.transport_type);
-                        const hasDistance = DISTANCE_TRANSPORTS.includes(r.transport_type);
-                        const hasParking = PARKING_TRANSPORTS.includes(r.transport_type);
-                        return (
-                        <div key={r.id ?? `new-${i}`} className="space-y-3 rounded-xl border border-gray-100 p-4">
-                            {/* 通勤経路 */}
-                            <div className="rounded-md bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">通勤経路</div>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                <div><label className={fieldLabel}>通勤手段</label>
-                                    <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.transport_type} onChange={(e) => patchRoute(i, { transport_type: e.target.value })}>
-                                        {Object.entries(options.transportTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                    </select>
-                                </div>
-                                <div><label className={fieldLabel}>{labels.from}</label><input disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.from_place ?? ''} onChange={(e) => patchRoute(i, { from_place: e.target.value })} /></div>
-                                <div><label className={fieldLabel}>{labels.to}</label><input disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.to_place ?? ''} onChange={(e) => patchRoute(i, { to_place: e.target.value })} /></div>
-                                {hasDistance && (
-                                    <div><label className={fieldLabel}>片道の通勤距離</label>
-                                        <div className="relative">
-                                            <input type="number" min="0" step="0.1" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.one_way_distance_km ?? 0} onChange={(e) => patchRoute(i, { one_way_distance_km: e.target.value === '' ? 0 : Number(e.target.value) })} />
-                                            <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">km</span>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* 通勤手当支給条件 */}
-                            <div className="rounded-md bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">通勤手当支給条件</div>
-                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                <div><label className={fieldLabel}>支給条件</label>
-                                    <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.condition} onChange={(e) => patchRoute(i, { condition: e.target.value })}>
-                                        {Object.entries(options.commuteConditions).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                    </select>
-                                </div>
-                                <div><label className={fieldLabel}>{r.condition === 'by_workdays' ? '日額' : '支給額（月額）'}</label>
-                                    <div className="relative">
-                                        <input type="number" min="0" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.amount ?? 0} onChange={(e) => patchRoute(i, { amount: e.target.value === '' ? 0 : Number(e.target.value) })} />
-                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                                    </div>
-                                </div>
-                                <div><label className={fieldLabel}>支払手段</label>
-                                    <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.payment_method} onChange={(e) => patchRoute(i, { payment_method: e.target.value })}>
-                                        {Object.entries(options.commutePaymentMethods).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                    </select>
-                                </div>
-                                {r.condition === 'by_workdays' && (
-                                    <div><label className={fieldLabel}>使用する勤怠項目</label>
-                                        <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.attendance_item_code ?? ''} onChange={(e) => patchRoute(i, { attendance_item_code: e.target.value || null })}>
-                                            <option value="">出勤日数（既定）</option>
-                                            {attendanceItems.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
-                                        </select>
-                                    </div>
-                                )}
-                                <div><label className={fieldLabel}>上限支給額</label>
-                                    <div className="relative">
-                                        <input type="number" min="0" disabled={!editing} placeholder="上限なし" className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.cap_amount ?? ''} onChange={(e) => patchRoute(i, { cap_amount: e.target.value === '' ? null : Number(e.target.value) })} />
-                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                                    </div>
-                                </div>
-                                <div><label className={fieldLabel}>非課税限度額</label>
-                                    <div className="relative">
-                                        <input type="number" min="0" disabled={!editing} placeholder="全額非課税" className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.non_taxable_limit ?? ''} onChange={(e) => patchRoute(i, { non_taxable_limit: e.target.value === '' ? null : Number(e.target.value) })} />
-                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                                    </div>
-                                </div>
-                            </div>
-                            {r.condition === 'fixed' && (
-                                <div>
-                                    <label className={fieldLabel}>支給月（未選択=毎月）</label>
-                                    <div className="flex flex-wrap gap-1.5">
-                                        {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
-                                            const on = r.payment_months.includes(m);
-                                            return (
-                                                <button key={m} type="button" disabled={!editing}
-                                                    onClick={() => patchRoute(i, { payment_months: on ? r.payment_months.filter((x) => x !== m) : [...r.payment_months, m].sort((a, b) => a - b) })}
-                                                    className={`h-7 w-9 rounded-md border text-xs transition disabled:opacity-60 ${on ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                                                    {m}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* 通勤用の駐車場等（自動車・バイク・自転車のみ） */}
-                            {hasParking && (
-                                <>
-                                    <div className="rounded-md bg-gray-50 px-3 py-1.5 text-xs font-semibold text-gray-600">通勤用の駐車場等</div>
-                                    <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                                        <input type="checkbox" disabled={!editing} className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" checked={r.uses_parking} onChange={(e) => patchRoute(i, { uses_parking: e.target.checked })} />
-                                        利用している
-                                    </label>
-                                    {r.uses_parking && (
-                                        <div className="space-y-3 rounded-xl border border-gray-100 bg-gray-50/40 p-3">
-                                            <div className="text-xs font-medium text-gray-500">駐車場等料金支給条件</div>
-                                            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                                <div><label className={fieldLabel}>支給条件</label>
-                                                    <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.parking_condition} onChange={(e) => patchRoute(i, { parking_condition: e.target.value })}>
-                                                        {Object.entries(options.commuteConditions).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                                    </select>
-                                                </div>
-                                                <div><label className={fieldLabel}>{r.parking_condition === 'by_workdays' ? '日額' : '支給額（月額）'}</label>
-                                                    <div className="relative">
-                                                        <input type="number" min="0" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.parking_amount ?? 0} onChange={(e) => patchRoute(i, { parking_amount: e.target.value === '' ? 0 : Number(e.target.value) })} />
-                                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                                                    </div>
-                                                </div>
-                                                <div><label className={fieldLabel}>支払手段</label>
-                                                    <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.parking_payment_method} onChange={(e) => patchRoute(i, { parking_payment_method: e.target.value })}>
-                                                        {Object.entries(options.commutePaymentMethods).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                                                    </select>
-                                                </div>
-                                                {r.parking_condition === 'by_workdays' && (
-                                                    <div><label className={fieldLabel}>使用する勤怠項目</label>
-                                                        <select disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.parking_attendance_item_code ?? ''} onChange={(e) => patchRoute(i, { parking_attendance_item_code: e.target.value || null })}>
-                                                            <option value="">出勤日数（既定）</option>
-                                                            {attendanceItems.map((a) => <option key={a.code} value={a.code}>{a.name}</option>)}
-                                                        </select>
-                                                    </div>
-                                                )}
-                                                <div><label className={fieldLabel}>上限支給額</label>
-                                                    <div className="relative">
-                                                        <input type="number" min="0" disabled={!editing} placeholder="上限なし" className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={r.parking_cap_amount ?? ''} onChange={(e) => patchRoute(i, { parking_cap_amount: e.target.value === '' ? null : Number(e.target.value) })} />
-                                                        <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {r.parking_condition === 'fixed' && (
-                                                <div>
-                                                    <label className={fieldLabel}>支給月（未選択=毎月）</label>
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
-                                                            const on = r.parking_payment_months.includes(m);
-                                                            return (
-                                                                <button key={m} type="button" disabled={!editing}
-                                                                    onClick={() => patchRoute(i, { parking_payment_months: on ? r.parking_payment_months.filter((x) => x !== m) : [...r.parking_payment_months, m].sort((a, b) => a - b) })}
-                                                                    className={`h-7 w-9 rounded-md border text-xs transition disabled:opacity-60 ${on ? 'border-teal-500 bg-teal-50 text-teal-700' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                                                                    {m}
-                                                                </button>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </>
-                            )}
-                            {editing && (
-                                <div className="flex justify-end">
-                                    <button onClick={() => removeRoute(i)} className="rounded-lg px-2.5 py-1.5 text-red-500 transition hover:bg-red-50"><i className="fa-solid fa-trash-can" /> 削除</button>
-                                </div>
-                            )}
+                    {!editing && routes.length > 0 && (
+                        <div className="space-y-4">
+                            <CommuteSummaryView routes={routes} attendanceItems={attendanceItems} />
+                            {routes.map((r, i) => (
+                                <CommuteRouteView key={r.id ?? `view-${i}`} route={r} options={options} />
+                            ))}
                         </div>
-                        );
-                    })}
+                    )}
                     {editing && (
-                        <button onClick={addRoute} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-gray-300 px-4 py-2 text-sm text-gray-600 transition hover:bg-gray-50"><i className="fa-solid fa-plus" /> 通勤ルートを追加</button>
+                        <div className="space-y-4">
+                            {routes.length > 0 && (
+                                <CommuteEditTopFields routes={routes} attendanceItems={attendanceItems} onPatchAll={patchAllRoutes} />
+                            )}
+                            {routes.map((r, i) => (
+                                <CommuteRouteEditForm
+                                    key={r.id ?? `edit-${i}`}
+                                    route={r}
+                                    options={options}
+                                    attendanceItems={attendanceItems}
+                                    onPatch={(p) => patchRoute(i, p)}
+                                    onRemove={() => removeRoute(i)}
+                                />
+                            ))}
+                            <button
+                                type="button"
+                                onClick={addRoute}
+                                className="inline-flex items-center gap-1.5 rounded border border-gray-300 bg-gray-50 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-100"
+                            >
+                                <i className="fa-solid fa-plus" /> 追加
+                            </button>
+                        </div>
                     )}
                 </div>
             </div>
