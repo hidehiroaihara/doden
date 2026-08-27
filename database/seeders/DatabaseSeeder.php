@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
             AdminSeeder::class,
             PayrollMasterSeeder::class,
             LegalMasterSeeder::class,
+            MunicipalitySeeder::class,
             DemoDataSeeder::class,
         ]);
     }

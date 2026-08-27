@@ -9,13 +9,18 @@ use App\Models\ClosingDateGroup;
 use App\Models\Department;
 use App\Models\EmployeeCommuteRoute;
 use App\Models\EmployeePayItemValue;
+use App\Models\EmployeePayroll;
+use App\Models\EmployeeResidentTax;
+use App\Models\EmployeeStandardReward;
 use App\Models\JobTitle;
 use App\Models\LeaveType;
 use App\Models\PayItemMaster;
 use App\Models\ResidentTaxMunicipality;
 use App\Models\Setting;
+use App\Models\StandardRewardGrade;
 use App\Models\User;
 use App\Models\UserStatusHistory;
+use App\Support\LaborInsuranceRates;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -183,6 +188,8 @@ class UserController extends Controller
             'employeePayroll.closingDateGroup',
             'dependents',
             'leaves.leaveType',
+            'residentTaxes',
+            'standardRewards',
         ]);
 
         $ep = $user->employeePayroll;
@@ -257,7 +264,10 @@ class UserController extends Controller
                 'employment_status' => $user->employment_status,
                 'my_number' => $user->my_number, // 復号済み
             ]),
-            'payroll' => $ep ? array_merge($ep->toArray(), []) : $this->defaultPayroll(),
+            'payroll' => $ep ? array_merge($ep->toArray(), [
+                'employment_industry_type' => $ep->businessLocation?->employment_industry_type,
+                'accident_industry_code' => $ep->businessLocation?->accident_industry_code,
+            ]) : $this->defaultPayroll(),
             'dependents' => $user->dependents->map(function ($d) {
                 return array_merge($d->toArray(), ['my_number' => $d->my_number]);
             }),
@@ -274,8 +284,87 @@ class UserController extends Controller
             'payItemValues' => $payItemValues,
             'commuteRoutes' => $commuteRoutes,
             'attendanceItems' => $attendanceItems,
+            'residentTaxes' => $user->residentTaxes->map(fn ($r) => [
+                'fiscal_year' => $r->fiscal_year,
+                'month' => $r->month,
+                'amount' => (int) $r->amount,
+            ]),
+            'standardRewards' => $user->standardRewards->map(fn ($r) => [
+                'id' => $r->id,
+                'applied_from' => $r->applied_from?->toDateString(),
+                'health_grade' => $r->health_grade,
+                'health_amount' => $r->health_amount,
+                'pension_grade' => $r->pension_grade,
+                'pension_amount' => $r->pension_amount,
+            ]),
+            'standardRewardOptions' => $this->standardRewardOptions(now()->toDateString()),
+            'socialInsurancePreview' => $this->socialInsurancePreview($user, $ep),
             'options' => $this->detailOptions(),
         ]);
+    }
+
+    /**
+     * 標準報酬月額と事業所の料率セットから、当月の社会保険料（本人/会社）を試算して返す。
+     * 手入力(mode=manual)の項目は入力値を、額表(mode=table)の項目は料率で自動計算した値を返す。
+     */
+    private function socialInsurancePreview(User $user, ?EmployeePayroll $ep): array
+    {
+        $period = now()->format('Y-m');
+        $result = [
+            'period' => $period,
+            'enrolled' => (bool) ($ep?->is_social_insurance_enrolled),
+            'has_rate_set' => false,
+            'care_target' => false,
+            'items' => [],
+        ];
+
+        if (! $ep) {
+            return $result;
+        }
+
+        $rateSet = $ep->businessLocation?->rateSetForDate(now()->toDateString());
+        $result['has_rate_set'] = (bool) $rateSet;
+        $result['care_target'] = \App\Support\CareInsurance::isTarget($user, $ep, $period);
+
+        $stdHealth = (int) ($ep->standard_reward_health ?? 0);
+        $stdPension = (int) ($ep->standard_reward_pension ?? 0);
+
+        $auto = function (?string $kind, int $base) use ($rateSet): array {
+            $rate = $kind ? $rateSet?->rate($kind) : null;
+            if (! $rate || $base <= 0) {
+                return ['employee' => 0, 'employer' => 0];
+            }
+
+            return [
+                'employee' => (int) round($base * (float) $rate->employee_rate / 1000),
+                'employer' => (int) round($base * (float) $rate->employer_rate / 1000),
+            ];
+        };
+
+        $build = function (string $key, string $kind, int $base) use ($ep, $auto): array {
+            $mode = $ep->{"{$key}_premium_mode"} ?? 'table';
+            if ($mode === 'manual') {
+                return [
+                    'mode' => 'manual',
+                    'employee' => (int) ($ep->{"{$key}_premium_employee"} ?? 0),
+                    'employer' => (int) ($ep->{"{$key}_premium_employer"} ?? 0),
+                ];
+            }
+            $calc = $auto($kind, $base);
+
+            return ['mode' => 'table', 'employee' => $calc['employee'], 'employer' => $calc['employer']];
+        };
+
+        $result['items'] = [
+            'health' => $build('health', 'health', $stdHealth),
+            'nursing' => $result['care_target']
+                ? $build('nursing', 'nursing', $stdHealth)
+                : ['mode' => $ep->nursing_premium_mode ?? 'table', 'employee' => 0, 'employer' => 0],
+            'child' => $build('child', 'child_contribution', $stdHealth),
+            'pension' => $build('pension', 'pension', $stdPension),
+        ];
+
+        return $result;
     }
 
     /**
@@ -313,6 +402,15 @@ class UserController extends Controller
                 break;
             case 'commute':
                 $this->updateCommute($request, $user);
+                break;
+            case 'insurance':
+                $this->updateInsurance($request, $user);
+                break;
+            case 'resident_tax_months':
+                $this->updateResidentTaxMonths($request, $user);
+                break;
+            case 'standard_rewards':
+                $this->updateStandardRewards($request, $user);
                 break;
             default:
                 abort(404);
@@ -448,14 +546,174 @@ class UserController extends Controller
     private function updateResidentTax(Request $request, User $user): void
     {
         $data = $request->validate([
-            'resident_tax_municipality' => ['nullable', 'string', 'max:255'],
-            'resident_tax_recipient_number' => ['nullable', 'string', 'max:255'],
+            'report_prefecture' => ['nullable', 'string', 'max:255'],
             'report_municipality' => ['nullable', 'string', 'max:255'],
+            'resident_tax_prefecture' => ['nullable', 'string', 'max:255'],
+            'resident_tax_municipality' => ['nullable', 'string', 'max:255'],
+            'resident_tax_reference_number' => ['nullable', 'string', 'max:255'],
+            'resident_tax_recipient_number' => ['nullable', 'string', 'max:255'],
         ]);
 
         $this->savePayroll($user, $data);
 
-        ResidentTaxMunicipality::sync($data['resident_tax_municipality'] ?? null);
+        ResidentTaxMunicipality::sync($data['report_municipality'] ?? null, $data['report_prefecture'] ?? null);
+        ResidentTaxMunicipality::sync($data['resident_tax_municipality'] ?? null, $data['resident_tax_prefecture'] ?? null);
+    }
+
+    /**
+     * 社会保険（健康保険・厚生年金・労災・雇用保険）の資格・区分・保険料上書き。
+     * MF em05「健康保険・厚生年金保険」「労災保険・雇用保険」「社会保険料」に対応。
+     */
+    private function updateInsurance(Request $request, User $user): void
+    {
+        $data = $request->validate([
+            'is_short_time_worker' => ['boolean'],
+            'is_miner' => ['boolean'],
+
+            'health_qualified_at' => ['nullable', 'date'],
+            'health_lost_at' => ['nullable', 'date'],
+            'health_lost_reason' => ['nullable', 'in:other,death,age_75,disability_certification'],
+            'health_insured_number' => ['nullable', 'string', 'max:50'],
+            'pension_qualified_at' => ['nullable', 'date'],
+            'pension_lost_at' => ['nullable', 'date'],
+            'pension_lost_reason' => ['nullable', 'in:other,death,age_75,disability_certification'],
+            'basic_pension_number' => ['nullable', 'string', 'max:50'],
+
+            'accident_employee_type' => ['required', 'in:regular,temporary,director_worker'],
+            'employment_qualified_at' => ['nullable', 'date'],
+            'employment_lost_at' => ['nullable', 'date'],
+            'employment_lost_reason' => ['nullable', 'in:voluntary_resignation,employer_convenience,other_than_resignation'],
+            'employment_insured_number' => ['nullable', 'string', 'max:50'],
+
+            'health_premium_mode' => ['required', 'in:table,manual'],
+            'health_premium_employee' => ['nullable', 'integer', 'min:0'],
+            'health_premium_employer' => ['nullable', 'integer', 'min:0'],
+            'nursing_premium_mode' => ['required', 'in:table,manual'],
+            'nursing_premium_employee' => ['nullable', 'integer', 'min:0'],
+            'nursing_premium_employer' => ['nullable', 'integer', 'min:0'],
+            'child_premium_mode' => ['required', 'in:table,manual'],
+            'child_premium_employee' => ['nullable', 'integer', 'min:0'],
+            'child_premium_employer' => ['nullable', 'integer', 'min:0'],
+            'pension_premium_mode' => ['required', 'in:table,manual'],
+            'pension_premium_employee' => ['nullable', 'integer', 'min:0'],
+            'pension_premium_employer' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $this->savePayroll($user, $data);
+    }
+
+    /**
+     * 住民税納付額（年度・月別）。6月〜翌5月の12ヶ月分をまとめて保存する。
+     */
+    private function updateResidentTaxMonths(Request $request, User $user): void
+    {
+        $data = $request->validate([
+            'fiscal_year' => ['required', 'integer', 'min:2000', 'max:2100'],
+            'months' => ['array'],
+            'months.*.month' => ['required', 'integer', 'min:1', 'max:12'],
+            'months.*.amount' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $fiscalYear = (int) $data['fiscal_year'];
+
+        foreach ($data['months'] ?? [] as $row) {
+            $month = (int) $row['month'];
+            $amount = (int) ($row['amount'] ?? 0);
+
+            EmployeeResidentTax::updateOrCreate(
+                ['user_id' => $user->id, 'fiscal_year' => $fiscalYear, 'month' => $month],
+                ['amount' => $amount],
+            );
+        }
+    }
+
+    /**
+     * 標準報酬月額 履歴（適用開始月つき）の一括保存。
+     */
+    private function updateStandardRewards(Request $request, User $user): void
+    {
+        $data = $request->validate([
+            'rewards' => ['array'],
+            'rewards.*.id' => ['nullable', 'integer'],
+            'rewards.*.applied_from' => ['required', 'date'],
+            'rewards.*.health_grade' => ['nullable', 'integer', 'min:0'],
+            'rewards.*.health_amount' => ['nullable', 'integer', 'min:0'],
+            'rewards.*.pension_grade' => ['nullable', 'integer', 'min:0'],
+            'rewards.*.pension_amount' => ['nullable', 'integer', 'min:0'],
+        ]);
+
+        $keepIds = [];
+
+        foreach ($data['rewards'] ?? [] as $row) {
+            $payload = [
+                'applied_from' => $row['applied_from'],
+                'health_grade' => $row['health_grade'] ?? null,
+                'health_amount' => $row['health_amount'] ?? null,
+                'pension_grade' => $row['pension_grade'] ?? null,
+                'pension_amount' => $row['pension_amount'] ?? null,
+            ];
+
+            if (! empty($row['id'])) {
+                $existing = $user->standardRewards()->whereKey($row['id'])->first();
+                if ($existing) {
+                    $existing->update($payload);
+                    $keepIds[] = $existing->id;
+                    continue;
+                }
+            }
+            $created = $user->standardRewards()->create($payload);
+            $keepIds[] = $created->id;
+        }
+
+        $user->standardRewards()->whereNotIn('id', $keepIds ?: [0])->delete();
+
+        // 最新の履歴を employee_payrolls の標準報酬（フォールバック用）へ同期
+        $latest = $user->standardRewards()->orderByDesc('applied_from')->first();
+        if ($latest) {
+            $this->savePayroll($user, [
+                'standard_reward_grade_health' => $latest->health_grade,
+                'standard_reward_health' => $latest->health_amount,
+                'standard_reward_grade_pension' => $latest->pension_grade,
+                'standard_reward_pension' => $latest->pension_amount,
+            ]);
+        }
+    }
+
+    /**
+     * 保険料額表（標準報酬等級）の選択肢。MF em05「保険料額表から選択」用。
+     * 健保等級を基準に、同じ報酬月額帯の厚年等級を自動紐づけする。
+     *
+     * @return list<array{key: int, health_grade: int, health_amount: int, pension_grade: ?int, pension_amount: ?int, range_label: string, label: string}>
+     */
+    private function standardRewardOptions(string $date): array
+    {
+        $healthGrades = StandardRewardGrade::query()
+            ->where('insurance_type', 'health')
+            ->where('effective_from', '<=', $date)
+            ->where(function ($q) use ($date) {
+                $q->whereNull('effective_to')->orWhere('effective_to', '>=', $date);
+            })
+            ->orderBy('grade')
+            ->get();
+
+        return $healthGrades->map(function (StandardRewardGrade $h) use ($date) {
+            $rewardKey = max(1, (int) $h->lower_bound);
+            $pension = StandardRewardGrade::resolve('pension', $rewardKey, $date);
+
+            $rangeLabel = $h->upper_bound === null
+                ? number_format($h->lower_bound).'円 〜'
+                : number_format($h->lower_bound).'円 〜 '.number_format($h->upper_bound).'円';
+
+            return [
+                'key' => (int) $h->lower_bound,
+                'health_grade' => (int) $h->grade,
+                'health_amount' => (int) $h->monthly_amount,
+                'pension_grade' => $pension ? (int) $pension->grade : null,
+                'pension_amount' => $pension ? (int) $pension->monthly_amount : null,
+                'range_label' => $rangeLabel,
+                'label' => number_format($h->monthly_amount).'円 ('.$rangeLabel.')',
+            ];
+        })->values()->all();
     }
 
     private function updateDependents(Request $request, User $user): void
@@ -786,6 +1044,20 @@ class UserController extends Controller
         };
     }
 
+    /** @return array<int, string> */
+    private function prefectures(): array
+    {
+        return [
+            '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
+            '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
+            '新潟県', '富山県', '石川県', '福井県', '山梨県', '長野県', '岐阜県',
+            '静岡県', '愛知県', '三重県', '滋賀県', '京都府', '大阪府', '兵庫県',
+            '奈良県', '和歌山県', '鳥取県', '島根県', '岡山県', '広島県', '山口県',
+            '徳島県', '香川県', '愛媛県', '高知県', '福岡県', '佐賀県', '長崎県',
+            '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
+        ];
+    }
+
     private function detailOptions(): array
     {
         return [
@@ -825,6 +1097,10 @@ class UserController extends Controller
                 'cash' => '金銭',
                 'in_kind' => '現物',
             ],
+            'employmentIndustries' => LaborInsuranceRates::employmentIndustryLabels(),
+            'accidentIndustries' => LaborInsuranceRates::accidentIndustryLabels(),
+            'prefectures' => $this->prefectures(),
+            'municipalitiesByPrefecture' => ResidentTaxMunicipality::optionsByPrefecture(),
         ];
     }
 
@@ -863,8 +1139,37 @@ class UserController extends Controller
             'is_employment_insurance_enrolled' => false,
             'is_care_insurance_target' => false,
             'care_insurance_override' => null,
+            'is_short_time_worker' => false,
+            'is_miner' => false,
             'standard_reward_health' => null,
             'standard_reward_pension' => null,
+            'health_qualified_at' => null,
+            'health_lost_at' => null,
+            'health_lost_reason' => null,
+            'health_insured_number' => null,
+            'pension_qualified_at' => null,
+            'pension_lost_at' => null,
+            'pension_lost_reason' => null,
+            'basic_pension_number' => null,
+            'accident_employee_type' => 'regular',
+            'employment_qualified_at' => null,
+            'employment_lost_at' => null,
+            'employment_lost_reason' => null,
+            'employment_insured_number' => null,
+            'employment_industry_type' => null,
+            'accident_industry_code' => null,
+            'health_premium_mode' => 'table',
+            'health_premium_employee' => null,
+            'health_premium_employer' => null,
+            'nursing_premium_mode' => 'table',
+            'nursing_premium_employee' => null,
+            'nursing_premium_employer' => null,
+            'child_premium_mode' => 'table',
+            'child_premium_employee' => null,
+            'child_premium_employer' => null,
+            'pension_premium_mode' => 'table',
+            'pension_premium_employee' => null,
+            'pension_premium_employer' => null,
             'commute_allowance_taxable' => 0,
             'commute_allowance_non_taxable' => 0,
             'resident_tax_monthly' => 0,
@@ -877,8 +1182,11 @@ class UserController extends Controller
             'account_number' => null,
             'account_holder_kana' => null,
             'resident_tax_municipality' => null,
+            'resident_tax_prefecture' => null,
             'resident_tax_recipient_number' => null,
+            'resident_tax_reference_number' => null,
             'report_municipality' => null,
+            'report_prefecture' => null,
         ];
     }
 

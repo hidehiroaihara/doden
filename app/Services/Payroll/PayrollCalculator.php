@@ -281,8 +281,8 @@ class PayrollCalculator
         $incomeTaxTarget = $this->sumEarningsByFlag($employee, $earnings, 'is_income_tax_target');
         $laborInsuranceTarget = $this->sumEarningsByFlag($employee, $earnings, 'is_labor_insurance_target');
 
-        $stdHealth = (int) ($employee->standard_reward_health ?? 0);
-        $stdPension = (int) ($employee->standard_reward_pension ?? 0);
+        // 標準報酬月額は「適用開始月つき履歴」を優先し、無ければ従業員情報の単一値を使う。
+        [$stdHealth, $stdPension, $gradeHealth, $gradePension] = $this->resolveStandardReward($user, $employee, $run);
 
         // 介護保険は生年月日から満40〜64歳を自動判定（従業員情報で上書き可）
         $careTarget = \App\Support\CareInsurance::isTarget($user, $employee, $run->period_key);
@@ -301,14 +301,14 @@ class PayrollCalculator
             switch ($m->code) {
                 case 'health_insurance':
                     if ($employee->is_social_insurance_enrolled) {
-                        $amount = $this->insuranceEmployee($rateSet, 'health', $stdHealth);
+                        $amount = $this->employeePremium($employee, 'health', $rateSet, 'health', $stdHealth);
                     }
                     $socialTotal += $amount;
                     break;
 
                 case 'nursing_insurance':
                     if ($employee->is_social_insurance_enrolled && $careTarget) {
-                        $amount = $this->insuranceEmployee($rateSet, 'nursing', $stdHealth);
+                        $amount = $this->employeePremium($employee, 'nursing', $rateSet, 'nursing', $stdHealth);
                     }
                     $socialTotal += $amount;
                     break;
@@ -320,7 +320,7 @@ class PayrollCalculator
 
                 case 'pension_insurance':
                     if ($employee->is_social_insurance_enrolled) {
-                        $amount = $this->insuranceEmployee($rateSet, 'pension', $stdPension);
+                        $amount = $this->employeePremium($employee, 'pension', $rateSet, 'pension', $stdPension);
                     }
                     $socialTotal += $amount;
                     break;
@@ -353,10 +353,7 @@ class PayrollCalculator
                     break;
 
                 case 'resident_tax':
-                    $month = (int) substr($run->period_key, 5, 2);
-                    $amount = $month === 6 && $employee->resident_tax_june > 0
-                        ? $employee->resident_tax_june
-                        : $employee->resident_tax_monthly;
+                    $amount = $this->residentTaxForMonth($user, $employee, $run);
                     break;
 
                 default:
@@ -396,8 +393,8 @@ class PayrollCalculator
             ] : null,
             'snapshot_standard_reward_health' => $stdHealth ?: null,
             'snapshot_standard_reward_pension' => $stdPension ?: null,
-            'snapshot_grade_health' => $employee->standard_reward_grade_health,
-            'snapshot_grade_pension' => $employee->standard_reward_grade_pension,
+            'snapshot_grade_health' => $gradeHealth,
+            'snapshot_grade_pension' => $gradePension,
             'snapshot_tax_table' => $employee->tax_table,
             'snapshot_dependents_count' => $dependentsCount,
             'income_tax_source' => $this->incomeTax->lastSource,
@@ -662,6 +659,77 @@ class PayrollCalculator
 
         // 料率は千分率(/1,000)で保持
         return $this->roundYen($standardReward * (float) $rate->employee_rate / 1000, 'round');
+    }
+
+    /**
+     * 社会保険料（本人負担）を返す。従業員情報で「手入力(manual)」が指定されていれば手入力額を、
+     * そうでなければ料率表(額表)から自動計算する。$key は health/nursing/pension。
+     */
+    private function employeePremium(EmployeePayroll $employee, string $key, ?InsuranceRateSet $rateSet, string $kind, int $standardReward): int
+    {
+        if (($employee->{"{$key}_premium_mode"} ?? 'table') === 'manual') {
+            return (int) ($employee->{"{$key}_premium_employee"} ?? 0);
+        }
+
+        return $this->insuranceEmployee($rateSet, $kind, $standardReward);
+    }
+
+    /**
+     * 標準報酬月額を解決する。適用開始月つき履歴があれば支給月に有効な最新行を優先し、
+     * 無ければ従業員情報の単一値（standard_reward_health / _pension）へフォールバックする。
+     *
+     * @return array{0:int,1:int,2:?int,3:?int} [健保標準報酬, 厚年標準報酬, 健保等級, 厚年等級]
+     */
+    private function resolveStandardReward(User $user, EmployeePayroll $employee, PayrollRun $run): array
+    {
+        $stdHealth = (int) ($employee->standard_reward_health ?? 0);
+        $stdPension = (int) ($employee->standard_reward_pension ?? 0);
+        $gradeHealth = $employee->standard_reward_grade_health;
+        $gradePension = $employee->standard_reward_grade_pension;
+
+        $periodStart = \Illuminate\Support\Carbon::parse($run->period_key.'-01')->startOfMonth()->toDateString();
+
+        $row = $user->standardRewards()
+            ->whereDate('applied_from', '<=', $periodStart)
+            ->orderByDesc('applied_from')
+            ->first();
+
+        if ($row) {
+            if ($row->health_amount !== null) {
+                $stdHealth = (int) $row->health_amount;
+                $gradeHealth = $row->health_grade ?? $gradeHealth;
+            }
+            if ($row->pension_amount !== null) {
+                $stdPension = (int) $row->pension_amount;
+                $gradePension = $row->pension_grade ?? $gradePension;
+            }
+        }
+
+        return [$stdHealth, $stdPension, $gradeHealth, $gradePension];
+    }
+
+    /**
+     * 住民税の当月控除額を返す。年度・月別の登録があればそれを優先し、
+     * 無ければ従業員情報の resident_tax_june / resident_tax_monthly へフォールバックする。
+     */
+    private function residentTaxForMonth(User $user, EmployeePayroll $employee, PayrollRun $run): int
+    {
+        $year = (int) substr($run->period_key, 0, 4);
+        $month = (int) substr($run->period_key, 5, 2);
+        $fiscalYear = \App\Models\EmployeeResidentTax::fiscalYearForMonth($year, $month);
+
+        $row = $user->residentTaxes()
+            ->where('fiscal_year', $fiscalYear)
+            ->where('month', $month)
+            ->first();
+
+        if ($row) {
+            return (int) $row->amount;
+        }
+
+        return $month === 6 && $employee->resident_tax_june > 0
+            ? (int) $employee->resident_tax_june
+            : (int) $employee->resident_tax_monthly;
     }
 
     private function insuranceEmployeeOnBase(?InsuranceRateSet $rateSet, string $kind, int $base): int

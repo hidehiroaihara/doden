@@ -24,7 +24,7 @@ class LaborInsuranceRates
      * @var array<string, string>
      */
     private const EMPLOYMENT_LABELS = [
-        'general' => '一般の事業',
+        'general' => '一般事業所',
         'agri_sake_forestry' => '農林水産・清酒製造の事業',
         'construction' => '建設の事業',
     ];

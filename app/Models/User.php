@@ -148,6 +148,16 @@ class User extends Authenticatable
         return $this->hasMany(EmployeeCommuteRoute::class)->orderBy('sort_order')->orderBy('id');
     }
 
+    public function residentTaxes(): HasMany
+    {
+        return $this->hasMany(EmployeeResidentTax::class)->orderBy('fiscal_year')->orderBy('month');
+    }
+
+    public function standardRewards(): HasMany
+    {
+        return $this->hasMany(EmployeeStandardReward::class)->orderBy('applied_from');
+    }
+
     public function payslips(): HasMany
     {
         return $this->hasMany(Payslip::class);

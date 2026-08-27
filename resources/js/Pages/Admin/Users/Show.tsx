@@ -1,7 +1,7 @@
 import AdminLayout from '@/Layouts/AdminLayout';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
 import { Head, Link, router } from '@inertiajs/react';
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type {
     BusinessLocation, ClosingDateGroup, Department, EmployeeDependent, EmployeeLeave,
     EmploymentStatus, JobTitle, LeaveType, User, UserStatusHistory,
@@ -41,8 +41,37 @@ interface PayrollData {
     is_employment_insurance_enrolled: boolean;
     is_care_insurance_target: boolean;
     care_insurance_override: boolean | null;
+    is_short_time_worker: boolean;
+    is_miner: boolean;
     standard_reward_health: number | null;
     standard_reward_pension: number | null;
+    health_qualified_at: string | null;
+    health_lost_at: string | null;
+    health_lost_reason: string | null;
+    health_insured_number: string | null;
+    pension_qualified_at: string | null;
+    pension_lost_at: string | null;
+    pension_lost_reason: string | null;
+    basic_pension_number: string | null;
+    accident_employee_type: string;
+    employment_qualified_at: string | null;
+    employment_lost_at: string | null;
+    employment_lost_reason: string | null;
+    employment_insured_number: string | null;
+    employment_industry_type: string | null;
+    accident_industry_code: string | null;
+    health_premium_mode: string;
+    health_premium_employee: number | null;
+    health_premium_employer: number | null;
+    nursing_premium_mode: string;
+    nursing_premium_employee: number | null;
+    nursing_premium_employer: number | null;
+    child_premium_mode: string;
+    child_premium_employee: number | null;
+    child_premium_employer: number | null;
+    pension_premium_mode: string;
+    pension_premium_employee: number | null;
+    pension_premium_employer: number | null;
     commute_allowance_taxable: number;
     commute_allowance_non_taxable: number;
     resident_tax_monthly: number;
@@ -55,8 +84,11 @@ interface PayrollData {
     account_number: string | null;
     account_holder_kana: string | null;
     resident_tax_municipality: string | null;
+    resident_tax_prefecture: string | null;
     resident_tax_recipient_number: string | null;
+    resident_tax_reference_number: string | null;
     report_municipality: string | null;
+    report_prefecture: string | null;
 }
 
 interface Options {
@@ -76,6 +108,10 @@ interface Options {
     transportTypes: LabelMap;
     commuteConditions: LabelMap;
     commutePaymentMethods: LabelMap;
+    employmentIndustries: LabelMap;
+    accidentIndustries: LabelMap;
+    prefectures: string[];
+    municipalitiesByPrefecture: Record<string, string[]>;
 }
 
 interface PayItemOption {
@@ -130,6 +166,50 @@ interface AttendanceItemOption {
     name: string;
 }
 
+interface ResidentTaxRow {
+    fiscal_year: number;
+    month: number;
+    amount: number;
+}
+
+interface StandardRewardRow {
+    id?: number;
+    applied_from: string;
+    health_grade: number | null;
+    health_amount: number | null;
+    pension_grade: number | null;
+    pension_amount: number | null;
+}
+
+interface StandardRewardOption {
+    key: number;
+    health_grade: number;
+    health_amount: number;
+    pension_grade: number | null;
+    pension_amount: number | null;
+    range_label: string;
+    label: string;
+}
+
+interface PremiumPreview {
+    mode: string;
+    employee: number;
+    employer: number;
+}
+
+interface SocialInsurancePreview {
+    period: string;
+    enrolled: boolean;
+    has_rate_set: boolean;
+    care_target: boolean;
+    items: {
+        health: PremiumPreview;
+        nursing: PremiumPreview;
+        child: PremiumPreview;
+        pension: PremiumPreview;
+    };
+}
+
 interface Props {
     user: User;
     payroll: PayrollData;
@@ -140,6 +220,10 @@ interface Props {
     payItemValues: Record<number, number>;
     commuteRoutes: CommuteRoute[];
     attendanceItems: AttendanceItemOption[];
+    residentTaxes: ResidentTaxRow[];
+    standardRewards: StandardRewardRow[];
+    standardRewardOptions: StandardRewardOption[];
+    socialInsurancePreview: SocialInsurancePreview;
     options: Options;
 }
 
@@ -1055,29 +1139,112 @@ function WorkSection({ user, payroll, canWrite, options }: { user: User; payroll
     );
 }
 
-/* ============================ 住民税 ============================ */
-function ResidentTaxSection({ user, payroll, canWrite }: { user: User; payroll: PayrollData; canWrite: boolean }) {
-    const s = useSection(user.id, 'resident_tax', {
-        resident_tax_municipality: payroll.resident_tax_municipality ?? '',
-        resident_tax_recipient_number: payroll.resident_tax_recipient_number ?? '',
+/* ============================ 住民税（MF em05: 都道府県＋市区町村の連動プルダウン） ============================ */
+interface ResidentTaxForm {
+    report_prefecture: string;
+    report_municipality: string;
+    resident_tax_prefecture: string;
+    resident_tax_municipality: string;
+    resident_tax_reference_number: string;
+    resident_tax_recipient_number: string;
+}
+
+function ResidentTaxSection({ user, payroll, canWrite, options }: { user: User; payroll: PayrollData; canWrite: boolean; options: Options }) {
+    const residencePrefecture = user.prefecture ?? '';
+    const build = (): ResidentTaxForm => ({
+        report_prefecture: payroll.report_prefecture ?? residencePrefecture,
         report_municipality: payroll.report_municipality ?? '',
+        resident_tax_prefecture: payroll.resident_tax_prefecture ?? residencePrefecture,
+        resident_tax_municipality: payroll.resident_tax_municipality ?? '',
+        resident_tax_reference_number: payroll.resident_tax_reference_number ?? '',
+        resident_tax_recipient_number: payroll.resident_tax_recipient_number ?? '',
     });
+
+    const [editing, setEditing] = useState(false);
+    const [data, setData] = useState<ResidentTaxForm>(build);
+    const [processing, setProcessing] = useState(false);
+    const set = <K extends keyof ResidentTaxForm>(k: K, v: ResidentTaxForm[K]) => setData((d) => ({ ...d, [k]: v }));
+
+    const municipalitiesFor = (pref: string): string[] => options.municipalitiesByPrefecture[pref] ?? [];
+
+    const changePrefecture = (prefKey: keyof ResidentTaxForm, cityKey: keyof ResidentTaxForm, pref: string) => {
+        setData((d) => {
+            const next = { ...d, [prefKey]: pref };
+            const cities = options.municipalitiesByPrefecture[pref] ?? [];
+            if (d[cityKey] && !cities.includes(d[cityKey])) next[cityKey] = '';
+            return next;
+        });
+    };
+
+    const cancel = () => { setData(build()); setEditing(false); };
+    const save = () => {
+        setProcessing(true);
+        router.put(route('admin.users.section', { user: user.id, section: 'resident_tax' }), data as never, {
+            preserveScroll: true,
+            onSuccess: () => setEditing(false),
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const cascadeSelect = (prefKey: keyof ResidentTaxForm, cityKey: keyof ResidentTaxForm) => {
+        const pref = data[prefKey];
+        const cities = municipalitiesFor(pref);
+        const selectClass = 'min-w-0 flex-1 rounded border border-gray-300 px-3 py-1.5 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500';
+        return (
+            <div className="flex max-w-lg items-center gap-2">
+                <select
+                    className={selectClass}
+                    value={pref}
+                    onChange={(e) => changePrefecture(prefKey, cityKey, e.target.value)}
+                >
+                    <option value="">都道府県を選択</option>
+                    {options.prefectures.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <select
+                    className={`${selectClass} disabled:text-gray-400`}
+                    value={data[cityKey]}
+                    disabled={!pref}
+                    onChange={(e) => set(cityKey, e.target.value)}
+                >
+                    <option value="">{pref ? '市区町村を選択' : '先に都道府県を選択'}</option>
+                    {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+            </div>
+        );
+    };
+
+    const combined = (pref: string | null, city: string | null): string => {
+        const p = (pref ?? '').trim();
+        const c = (city ?? '').trim();
+        return [p, c].filter(Boolean).join(' ');
+    };
+
     return (
-        <SectionShell title="住民税" icon="fa-solid fa-city" canWrite={canWrite} editing={s.editing}
-            onEdit={() => s.setEditing(true)} onCancel={s.cancel} onSave={() => s.save()} processing={s.processing}>
-            {s.editing ? (
-                <div className={gridClass}>
-                    <div><label className={fieldLabel}>給与支払報告書 提出先市区町村</label><input className={inputClass} value={s.data.report_municipality} onChange={(e) => s.set('report_municipality', e.target.value)} placeholder="例）新宿区" /></div>
-                    <div><label className={fieldLabel}>納付先市区町村名</label><input className={inputClass} value={s.data.resident_tax_municipality} onChange={(e) => s.set('resident_tax_municipality', e.target.value)} placeholder="例）新宿区" /></div>
-                    <div><label className={fieldLabel}>受給者番号</label><input className={inputClass} value={s.data.resident_tax_recipient_number} onChange={(e) => s.set('resident_tax_recipient_number', e.target.value)} /></div>
-                </div>
-            ) : (
-                <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
-                    <Row label="給与支払報告書 提出先市区町村" value={payroll.report_municipality} />
-                    <Row label="納付先市区町村名" value={payroll.resident_tax_municipality} />
-                    <Row label="受給者番号" value={payroll.resident_tax_recipient_number} />
-                </dl>
-            )}
+        <SectionShell title="住民税" icon="fa-solid fa-city" canWrite={canWrite} editing={editing}
+            onEdit={() => setEditing(true)} onCancel={cancel} onSave={save} processing={processing}>
+            <div className="overflow-hidden rounded border border-gray-200">
+                {editing ? (
+                    <MfFormTable>
+                        <MfFormRow label="給与支払報告書提出先市区町村">{cascadeSelect('report_prefecture', 'report_municipality')}</MfFormRow>
+                        <MfFormRow label="納付先市区町村">{cascadeSelect('resident_tax_prefecture', 'resident_tax_municipality')}</MfFormRow>
+                        <MfFormRow label="宛名番号" help>
+                            <input className={`${mfFieldClass} max-w-md`} value={data.resident_tax_reference_number}
+                                onChange={(e) => set('resident_tax_reference_number', e.target.value)} placeholder="整理番号" />
+                        </MfFormRow>
+                        <MfFormRow label="受給者番号">
+                            <input className={`${mfFieldClass} max-w-md`} value={data.resident_tax_recipient_number}
+                                onChange={(e) => set('resident_tax_recipient_number', e.target.value)} />
+                        </MfFormRow>
+                    </MfFormTable>
+                ) : (
+                    <MfViewTable>
+                        <MfViewRow label="給与支払報告書提出先市区町村" value={combined(payroll.report_prefecture, payroll.report_municipality)} />
+                        <MfViewRow label="納付先市区町村" value={combined(payroll.resident_tax_prefecture, payroll.resident_tax_municipality)} />
+                        <MfViewRow label="宛名番号" help value={payroll.resident_tax_reference_number} />
+                        <MfViewRow label="受給者番号" value={payroll.resident_tax_recipient_number} />
+                    </MfViewTable>
+                )}
+            </div>
         </SectionShell>
     );
 }
@@ -1234,11 +1401,672 @@ function DependentSection({ user, dependents, canWrite, options }: { user: User;
 }
 
 /* ============================ 給与情報タブ ============================ */
+/* ============================ 健康保険・厚生年金 / 労災・雇用保険（届出情報＋社会保険料） ============================ */
+const ACCIDENT_EMPLOYEE_TYPES: LabelMap = {
+    regular: '常用労働者',
+    temporary: '臨時労働者',
+    director_worker: '役員（労働者扱い）',
+};
+/** 閲覧表示用（MF 準拠の短縮ラベル） */
+const ACCIDENT_EMPLOYEE_TYPE_VIEW: LabelMap = {
+    regular: '常用',
+    temporary: '臨時',
+    director_worker: '役員（労働者扱い）',
+};
+/** 健康保険・厚生年金保険 資格喪失原因（MF em05 準拠） */
+const SOCIAL_INSURANCE_LOST_REASONS: LabelMap = {
+    other: 'その他',
+    death: '死亡',
+    age_75: '75歳',
+    disability_certification: '障がい者認定',
+};
+/** 雇用保険 資格喪失原因（MF em05 準拠） */
+const EMPLOYMENT_LOST_REASONS: LabelMap = {
+    voluntary_resignation: '事業主都合以外の離職',
+    employer_convenience: '事業主都合の離職',
+    other_than_resignation: '離職以外の理由',
+};
+const PREMIUM_ROWS: { key: 'health' | 'nursing' | 'child' | 'pension'; label: string; employerOnly?: boolean }[] = [
+    { key: 'health', label: '健康保険料' },
+    { key: 'nursing', label: '介護保険料' },
+    { key: 'child', label: '子ども・子育て支援金', employerOnly: true },
+    { key: 'pension', label: '厚生年金保険料' },
+];
+const AUTO_PREMIUM_LABEL = '標準報酬月額を元に自動計算';
+const MF_EMPTY = '\u00a0';
+
+function hasHealthPensionInfo(p: {
+    health_qualified_at?: string | null;
+    health_insured_number?: string | null;
+    health_lost_at?: string | null;
+    health_lost_reason?: string | null;
+    pension_qualified_at?: string | null;
+    basic_pension_number?: string | null;
+    pension_lost_at?: string | null;
+    pension_lost_reason?: string | null;
+    is_short_time_worker?: boolean;
+    is_miner?: boolean;
+}): boolean {
+    return !!(
+        p.health_qualified_at || p.health_insured_number || p.health_lost_at || p.health_lost_reason
+        || p.pension_qualified_at || p.basic_pension_number || p.pension_lost_at || p.pension_lost_reason
+        || p.is_short_time_worker || p.is_miner
+    );
+}
+
+function hasEmploymentDetailInfo(p: {
+    employment_qualified_at?: string | null;
+    employment_insured_number?: string | null;
+    employment_lost_at?: string | null;
+    employment_lost_reason?: string | null;
+}): boolean {
+    return !!(
+        p.employment_qualified_at || p.employment_insured_number
+        || p.employment_lost_at || p.employment_lost_reason
+    );
+}
+
+function yen(n: number | null | undefined): string {
+    return `${(Number(n) || 0).toLocaleString()} 円`;
+}
+
+function InsuranceQualificationSection({
+    user, payroll, preview, options, canWrite,
+}: {
+    user: User; payroll: PayrollData; preview: SocialInsurancePreview; options: Options; canWrite: boolean;
+}) {
+    type InsForm = Pick<PayrollData,
+        'is_short_time_worker' | 'is_miner' |
+        'health_qualified_at' | 'health_lost_at' | 'health_lost_reason' | 'health_insured_number' |
+        'pension_qualified_at' | 'pension_lost_at' | 'pension_lost_reason' | 'basic_pension_number' |
+        'accident_employee_type' | 'employment_qualified_at' | 'employment_lost_at' | 'employment_lost_reason' | 'employment_insured_number' |
+        'health_premium_mode' | 'health_premium_employee' | 'health_premium_employer' |
+        'nursing_premium_mode' | 'nursing_premium_employee' | 'nursing_premium_employer' |
+        'child_premium_mode' | 'child_premium_employee' | 'child_premium_employer' |
+        'pension_premium_mode' | 'pension_premium_employee' | 'pension_premium_employer'>;
+
+    const build = (p: PayrollData): InsForm => ({
+        is_short_time_worker: !!p.is_short_time_worker,
+        is_miner: !!p.is_miner,
+        health_qualified_at: p.health_qualified_at?.split('T')[0] ?? null,
+        health_lost_at: p.health_lost_at?.split('T')[0] ?? null,
+        health_lost_reason: p.health_lost_reason ?? null,
+        health_insured_number: p.health_insured_number ?? null,
+        pension_qualified_at: p.pension_qualified_at?.split('T')[0] ?? null,
+        pension_lost_at: p.pension_lost_at?.split('T')[0] ?? null,
+        pension_lost_reason: p.pension_lost_reason ?? null,
+        basic_pension_number: p.basic_pension_number ?? null,
+        accident_employee_type: p.accident_employee_type ?? 'regular',
+        employment_qualified_at: p.employment_qualified_at?.split('T')[0] ?? null,
+        employment_lost_at: p.employment_lost_at?.split('T')[0] ?? null,
+        employment_lost_reason: p.employment_lost_reason ?? null,
+        employment_insured_number: p.employment_insured_number ?? null,
+        health_premium_mode: p.health_premium_mode ?? 'table',
+        health_premium_employee: p.health_premium_employee ?? null,
+        health_premium_employer: p.health_premium_employer ?? null,
+        nursing_premium_mode: p.nursing_premium_mode ?? 'table',
+        nursing_premium_employee: p.nursing_premium_employee ?? null,
+        nursing_premium_employer: p.nursing_premium_employer ?? null,
+        child_premium_mode: p.child_premium_mode ?? 'table',
+        child_premium_employee: p.child_premium_employee ?? null,
+        child_premium_employer: p.child_premium_employer ?? null,
+        pension_premium_mode: p.pension_premium_mode ?? 'table',
+        pension_premium_employee: p.pension_premium_employee ?? null,
+        pension_premium_employer: p.pension_premium_employer ?? null,
+    });
+
+    const [editing, setEditing] = useState(false);
+    const [data, setData] = useState<InsForm>(() => build(payroll));
+    const [processing, setProcessing] = useState(false);
+    const set = <K extends keyof InsForm>(k: K, v: InsForm[K]) => setData((d) => ({ ...d, [k]: v }));
+
+    const cancel = () => { setData(build(payroll)); setEditing(false); };
+    const save = () => {
+        setProcessing(true);
+        router.put(route('admin.users.section', { user: user.id, section: 'insurance' }), data as never, {
+            preserveScroll: true,
+            onSuccess: () => setEditing(false),
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const insFieldClass = `${mfFieldClass} max-w-md`;
+    const insDateRow = (k: keyof InsForm, label: string) => (
+        <MfFormRow label={label}>
+            {editing ? (
+                <input type="date" className={insFieldClass}
+                    value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)} />
+            ) : (
+                fmtDate(data[k] as string | null) || MF_EMPTY
+            )}
+        </MfFormRow>
+    );
+    const insTextRow = (k: keyof InsForm, label: string, ph?: string) => (
+        <MfFormRow label={label}>
+            {editing ? (
+                <input placeholder={ph} className={insFieldClass}
+                    value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)} />
+            ) : (
+                (data[k] as string | null) || MF_EMPTY
+            )}
+        </MfFormRow>
+    );
+    const insSelectRow = (k: keyof InsForm, label: string, optionMap: LabelMap) => (
+        <MfFormRow label={label}>
+            {editing ? (
+                <select className={insFieldClass}
+                    value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)}>
+                    <option value="">未選択</option>
+                    {Object.entries(optionMap).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+            ) : (
+                (data[k] as string | null) ? (optionMap[data[k] as string] ?? data[k]) : MF_EMPTY
+            )}
+        </MfFormRow>
+    );
+    const insCheckboxRow = (k: keyof InsForm, label: string) => (
+        <MfFormRow label={label}>
+            {editing ? (
+                <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                    <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                        checked={Boolean(data[k])} onChange={(e) => set(k, e.target.checked as never)} />
+                    該当する
+                </label>
+            ) : (
+                Boolean(data[k]) ? '該当する' : '該当しない'
+            )}
+        </MfFormRow>
+    );
+
+    const accidentIndustryLabel = payroll.accident_industry_code
+        ? (options.accidentIndustries[payroll.accident_industry_code] ?? payroll.accident_industry_code)
+        : null;
+    const employmentIndustryLabel = payroll.employment_industry_type
+        ? (options.employmentIndustries[payroll.employment_industry_type] ?? payroll.employment_industry_type)
+        : null;
+    const showHealthPension = editing || hasHealthPensionInfo(data);
+    const showEmploymentDetails = editing || hasEmploymentDetailInfo(data);
+
+    const sectionProps = {
+        canWrite, editing, onEdit: () => setEditing(true), onCancel: cancel, onSave: save, processing,
+    };
+
+    const premiumCell = (key: 'health' | 'nursing' | 'child' | 'pension', side: 'employee' | 'employer', employerOnly?: boolean, inactive?: boolean) => {
+        const modeKey = `${key}_premium_mode` as keyof InsForm;
+        const amountKey = `${key}_premium_${side}` as keyof InsForm;
+        const mode = (data[modeKey] as string) ?? 'table';
+        const autoVal = preview.items[key]?.[side] ?? 0;
+        const disabledCell = side === 'employee' && employerOnly;
+
+        // 閲覧時・額表（自動）: MF と同様に自動計算の文言を表示
+        if (!editing && mode === 'table') {
+            if (inactive || disabledCell) {
+                return <span className="text-sm text-gray-400">{AUTO_PREMIUM_LABEL}</span>;
+            }
+            return <span className="text-sm text-gray-600">{AUTO_PREMIUM_LABEL}</span>;
+        }
+
+        if (mode === 'manual' && editing && !disabledCell) {
+            return (
+                <div className="relative max-w-xs">
+                    <input type="number" min="0" className={insFieldClass}
+                        value={numInputDisplay(data[amountKey] as number | null)}
+                        onChange={(e) => set(amountKey, (e.target.value === '' ? null : Number(e.target.value)) as never)} />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
+                </div>
+            );
+        }
+
+        const shown = mode === 'manual' ? (Number(data[amountKey]) || 0) : autoVal;
+        if (disabledCell && !editing) {
+            return <span className="text-sm text-gray-600">{AUTO_PREMIUM_LABEL}</span>;
+        }
+        return <span className={disabledCell ? 'text-gray-300' : 'text-gray-800'}>{disabledCell ? '—' : yen(shown)}</span>;
+    };
+
+    return (
+        <div className="space-y-4">
+            {/* 健康保険 / 厚生年金保険 */}
+            <SectionShell title="健康保険 / 厚生年金保険" icon="fa-solid fa-shield-heart" {...sectionProps}>
+                {!showHealthPension ? (
+                    <p className="text-sm leading-relaxed text-gray-600">
+                        健康保険または厚生年金保険情報がありません。編集ボタンから健康保険または厚生年金保険情報を登録してください。
+                    </p>
+                ) : (
+                    <div className="space-y-4">
+                        {(editing || data.is_short_time_worker || data.is_miner) && (
+                            <div className="overflow-hidden rounded border border-gray-200">
+                                <MfFormTable>
+                                    <MfFormSectionHeader title="区分" />
+                                    {insCheckboxRow('is_short_time_worker', '短時間就労者（パート）')}
+                                    {insCheckboxRow('is_miner', '坑内夫')}
+                                </MfFormTable>
+                            </div>
+                        )}
+                        <div className="overflow-hidden rounded border border-gray-200">
+                            <MfFormTable>
+                                <MfFormSectionHeader title="健康保険" />
+                                {insDateRow('health_qualified_at', '資格取得年月日')}
+                                {insTextRow('health_insured_number', '被保険者整理番号')}
+                                {insDateRow('health_lost_at', '資格喪失年月日')}
+                                {insSelectRow('health_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS)}
+                            </MfFormTable>
+                        </div>
+                        <div className="overflow-hidden rounded border border-gray-200">
+                            <MfFormTable>
+                                <MfFormSectionHeader title="厚生年金保険" />
+                                {insDateRow('pension_qualified_at', '資格取得年月日')}
+                                {insTextRow('basic_pension_number', '基礎年金番号')}
+                                {insDateRow('pension_lost_at', '資格喪失年月日')}
+                                {insSelectRow('pension_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS)}
+                            </MfFormTable>
+                        </div>
+                    </div>
+                )}
+            </SectionShell>
+
+            {/* 社会保険料 */}
+            <SectionShell title="社会保険料" icon="fa-solid fa-calculator" {...sectionProps}>
+                {editing && !preview.has_rate_set && (
+                    <p className="mb-3 text-xs text-amber-600"><i className="fa-solid fa-triangle-exclamation mr-1" />事業所に保険料率が未設定です</p>
+                )}
+                <div className="overflow-hidden rounded border border-gray-200">
+                    <table className="w-full border-collapse text-sm">
+                        <thead>
+                            <tr className="border-b border-gray-200 bg-sky-50/80">
+                                <th className="border-r border-gray-200 px-4 py-2 text-left text-sm font-normal text-gray-600" />
+                                {editing && <th className="w-28 border-r border-gray-200 px-4 py-2 text-left text-sm font-normal text-gray-600">計算区分</th>}
+                                <th className="border-r border-gray-200 px-4 py-2 text-left text-sm font-normal text-gray-600">保険料（本人）</th>
+                                <th className="px-4 py-2 text-left text-sm font-normal text-gray-600">保険料（会社）</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {PREMIUM_ROWS.map((row) => {
+                                const modeKey = `${row.key}_premium_mode` as keyof InsForm;
+                                const mode = (data[modeKey] as string) ?? 'table';
+                                const inactive = row.key === 'nursing' && !preview.care_target;
+                                return (
+                                    <tr key={row.key} className={`border-b border-gray-200 last:border-b-0 ${inactive ? 'opacity-60' : ''}`}>
+                                        <th className="w-[38%] border-r border-gray-200 bg-gray-50 px-4 py-2.5 text-left align-middle text-sm font-normal text-gray-800">{row.label}</th>
+                                        {editing && (
+                                            <td className="border-r border-gray-200 px-4 py-2.5 align-middle">
+                                                <select className={`${insFieldClass} max-w-28`}
+                                                    value={mode} onChange={(e) => set(modeKey, e.target.value as never)}>
+                                                    <option value="table">額表</option>
+                                                    <option value="manual">手入力</option>
+                                                </select>
+                                            </td>
+                                        )}
+                                        <td className="border-r border-gray-200 px-4 py-2.5 align-middle">{premiumCell(row.key, 'employee', row.employerOnly, inactive)}</td>
+                                        <td className="px-4 py-2.5 align-middle">{premiumCell(row.key, 'employer', row.employerOnly, inactive)}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+                {editing && (
+                    <p className="mt-1.5 text-[11px] text-gray-400">額表: 標準報酬月額と事業所の保険料率から自動計算します。手入力に切り替えると金額を直接指定できます。</p>
+                )}
+            </SectionShell>
+
+            {/* 労災保険 / 雇用保険 */}
+            <SectionShell title="労災保険 / 雇用保険" icon="fa-solid fa-helmet-safety" {...sectionProps}>
+                <div className="overflow-hidden rounded border border-gray-200">
+                    <MfFormTable>
+                        <MfFormRow label="労災保険料の事業">
+                            {accidentIndustryLabel ?? <span className="text-gray-400">未設定（所属事業所の労働保険設定を確認してください）</span>}
+                        </MfFormRow>
+                        <MfFormRow label="従業員区分">
+                            {editing ? (
+                                <select className={insFieldClass} value={data.accident_employee_type} onChange={(e) => set('accident_employee_type', e.target.value)}>
+                                    {Object.entries(ACCIDENT_EMPLOYEE_TYPES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                                </select>
+                            ) : (
+                                ACCIDENT_EMPLOYEE_TYPE_VIEW[data.accident_employee_type] ?? ACCIDENT_EMPLOYEE_TYPES[data.accident_employee_type] ?? data.accident_employee_type
+                            )}
+                        </MfFormRow>
+                        <MfFormRow label="雇用保険料の事業">
+                            {employmentIndustryLabel ?? <span className="text-gray-400">未設定（所属事業所の労働保険設定を確認してください）</span>}
+                        </MfFormRow>
+                        {insDateRow('employment_qualified_at', '資格取得年月日')}
+                        {showEmploymentDetails && insTextRow('employment_insured_number', '被保険者番号')}
+                        {showEmploymentDetails && insDateRow('employment_lost_at', '離職等年月日')}
+                        {showEmploymentDetails && insSelectRow('employment_lost_reason', '資格喪失原因', EMPLOYMENT_LOST_REASONS)}
+                    </MfFormTable>
+                </div>
+                {(!payroll.employment_industry_type || !payroll.accident_industry_code) && (
+                    <p className="mt-2 text-[11px] text-gray-400">
+                        労災・雇用の「事業」は従業員ごとの設定ではなく、<strong>給与設定 → 事業所 → 労働保険</strong> の業種設定から自動表示されます。
+                    </p>
+                )}
+            </SectionShell>
+        </div>
+    );
+}
+
+/* ============================ 標準報酬月額 履歴（MF: 適用開始月 + 保険料額表から選択） ============================ */
+function formatAppliedMonth(dateStr: string): string {
+    if (!dateStr) return '';
+    const [y, m] = dateStr.split('T')[0].split('-');
+    return `${y}-${m}`;
+}
+
+function appliedMonthToDate(monthStr: string): string {
+    if (!monthStr) return '';
+    return `${monthStr}-01`;
+}
+
+function StandardRewardSection({
+    user, rows, gradeOptions, canWrite,
+}: {
+    user: User; rows: StandardRewardRow[]; gradeOptions: StandardRewardOption[]; canWrite: boolean;
+}) {
+    const clone = (list: StandardRewardRow[]) => list.map((r) => ({ ...r }));
+    const [editing, setEditing] = useState(false);
+    const [list, setList] = useState<StandardRewardRow[]>(() => clone(rows));
+    const [processing, setProcessing] = useState(false);
+
+    const findOption = (amount: number | null) =>
+        amount != null ? gradeOptions.find((o) => o.health_amount === amount) : undefined;
+
+    const patch = (i: number, p: Partial<StandardRewardRow>) => setList((l) => l.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
+    const add = () => setList((l) => [...l, { applied_from: '', health_grade: null, health_amount: null, pension_grade: null, pension_amount: null }]);
+    const remove = (i: number) => setList((l) => l.filter((_, idx) => idx !== i));
+
+    const selectGrade = (i: number, healthAmount: string) => {
+        if (!healthAmount) {
+            patch(i, { health_grade: null, health_amount: null, pension_grade: null, pension_amount: null });
+            return;
+        }
+        const opt = gradeOptions.find((o) => String(o.health_amount) === healthAmount);
+        if (opt) {
+            patch(i, {
+                health_grade: opt.health_grade,
+                health_amount: opt.health_amount,
+                pension_grade: opt.pension_grade,
+                pension_amount: opt.pension_amount,
+            });
+        }
+    };
+
+    const cancel = () => { setList(clone(rows)); setEditing(false); };
+    const save = () => {
+        setProcessing(true);
+        const rewards = list
+            .filter((r) => r.applied_from && r.health_amount != null)
+            .map((r) => ({
+                ...r,
+                applied_from: r.applied_from.includes('-01') ? r.applied_from : appliedMonthToDate(formatAppliedMonth(r.applied_from)),
+            }));
+        router.put(route('admin.users.section', { user: user.id, section: 'standard_rewards' }), { rewards } as never, {
+            preserveScroll: true,
+            onSuccess: () => setEditing(false),
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const rewardRow = (r: StandardRewardRow, i: number) => {
+        const opt = findOption(r.health_amount);
+        return (
+            <div key={r.id ?? `reward-${i}`} className="overflow-hidden rounded border border-gray-200">
+                <MfFormTable>
+                    <MfFormRow label="適用開始月">
+                        {editing ? (
+                            <div className="flex flex-wrap items-center gap-3">
+                                <input type="month" className={`${mfFieldClass} w-40`}
+                                    value={formatAppliedMonth(r.applied_from)}
+                                    onChange={(e) => patch(i, { applied_from: appliedMonthToDate(e.target.value) })} />
+                                <button type="button" onClick={() => remove(i)} className="ml-auto text-red-400 transition hover:text-red-600" title="削除">
+                                    <i className="fa-solid fa-trash-can" />
+                                </button>
+                            </div>
+                        ) : (
+                            `${formatAppliedMonth(r.applied_from).replace('-', '年')}月`
+                        )}
+                    </MfFormRow>
+                    <MfFormRow label="標準報酬月額">
+                        <div className="min-w-0 space-y-2">
+                            {editing && <p className="text-xs text-gray-400">保険料額表から選択</p>}
+                            {editing ? (
+                                <select className={mfFieldClass} value={r.health_amount ?? ''} onChange={(e) => selectGrade(i, e.target.value)}>
+                                    <option value="">選択なし</option>
+                                    {gradeOptions.map((o) => (
+                                        <option key={o.health_amount} value={o.health_amount}>{o.label}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <span className="font-medium">{opt?.label ?? (r.health_amount != null ? `${r.health_amount.toLocaleString()}円` : '未設定')}</span>
+                            )}
+                            {opt && (
+                                <table className="w-full max-w-md border-collapse border border-gray-200 text-sm">
+                                    <thead>
+                                        <tr className="border-b border-gray-200 bg-gray-50">
+                                            <th className="border-r border-gray-200 px-3 py-1.5 text-left font-normal text-gray-600">健康保険</th>
+                                            <th className="px-3 py-1.5 text-left font-normal text-gray-600">厚生年金</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td className="border-r border-gray-200 px-3 py-2 text-gray-800">{opt.health_amount.toLocaleString()}円</td>
+                                            <td className="px-3 py-2 text-gray-600">{opt.pension_amount != null ? `${opt.pension_amount.toLocaleString()}円` : '—'}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </MfFormRow>
+                </MfFormTable>
+            </div>
+        );
+    };
+
+    return (
+        <SectionShell title="標準報酬月額" icon="fa-solid fa-chart-line" canWrite={canWrite} editing={editing}
+            onEdit={() => setEditing(true)} onCancel={cancel} onSave={save} processing={processing}>
+            {list.length === 0 && !editing ? (
+                <p className="text-sm text-gray-400">履歴は登録されていません。「編集」から適用開始月と保険料額表を指定してください。</p>
+            ) : (
+                <div className="space-y-3">
+                    {list.map((r, i) => rewardRow(r, i))}
+                    {editing && (
+                        <button type="button" onClick={add}
+                            className="inline-flex items-center gap-1.5 text-sm font-medium text-teal-600 transition hover:text-teal-700">
+                            <i className="fa-solid fa-chevron-right text-xs" /> 標準報酬月額を追加
+                        </button>
+                    )}
+                </div>
+            )}
+        </SectionShell>
+    );
+}
+
+/* ============================ 住民税納付額（年度・月別） ============================ */
+const RESIDENT_TAX_MONTH_ORDER = [6, 7, 8, 9, 10, 11, 12, 1, 2, 3, 4, 5];
+
+function currentFiscalYear(): number {
+    const now = new Date();
+    return now.getMonth() + 1 >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+function ResidentTaxScheduleSection({
+    user, residentTaxes, canWrite,
+}: {
+    user: User; residentTaxes: ResidentTaxRow[]; canWrite: boolean;
+}) {
+    const years = useMemo(() => {
+        const set = new Set<number>(residentTaxes.map((r) => r.fiscal_year));
+        set.add(currentFiscalYear());
+        return Array.from(set).sort((a, b) => b - a);
+    }, [residentTaxes]);
+
+    const [fiscalYear, setFiscalYear] = useState<number>(years[0] ?? currentFiscalYear());
+    const [editing, setEditing] = useState(false);
+    const [processing, setProcessing] = useState(false);
+    const [focusedMonth, setFocusedMonth] = useState<number | null>(null);
+
+    const amountsFor = (year: number): Record<number, number> => {
+        const map: Record<number, number> = {};
+        RESIDENT_TAX_MONTH_ORDER.forEach((m) => { map[m] = 0; });
+        residentTaxes.filter((r) => r.fiscal_year === year).forEach((r) => { map[r.month] = r.amount; });
+        return map;
+    };
+
+    const [amounts, setAmounts] = useState<Record<number, number>>(() => amountsFor(fiscalYear));
+
+    const changeYear = (year: number) => {
+        setFiscalYear(year);
+        setAmounts(amountsFor(year));
+        setEditing(false);
+        setFocusedMonth(null);
+    };
+    const setMonth = (m: number, v: number) => setAmounts((a) => ({ ...a, [m]: v }));
+    const total = RESIDENT_TAX_MONTH_ORDER.reduce((s, m) => s + (Number(amounts[m]) || 0), 0);
+
+    const cancel = () => {
+        setAmounts(amountsFor(fiscalYear));
+        setEditing(false);
+        setFocusedMonth(null);
+    };
+    const save = () => {
+        setProcessing(true);
+        const months = RESIDENT_TAX_MONTH_ORDER.map((m) => ({ month: m, amount: Number(amounts[m]) || 0 }));
+        router.put(route('admin.users.section', { user: user.id, section: 'resident_tax_months' }), { fiscal_year: fiscalYear, months } as never, {
+            preserveScroll: true,
+            onSuccess: () => { setEditing(false); setFocusedMonth(null); },
+            onFinish: () => setProcessing(false),
+        });
+    };
+
+    const copyToSubsequent = (fromMonth: number) => {
+        const idx = RESIDENT_TAX_MONTH_ORDER.indexOf(fromMonth);
+        const amount = amounts[fromMonth] ?? 0;
+        setAmounts((a) => {
+            const next = { ...a };
+            for (let i = idx + 1; i < RESIDENT_TAX_MONTH_ORDER.length; i++) {
+                next[RESIDENT_TAX_MONTH_ORDER[i]] = amount;
+            }
+            return next;
+        });
+    };
+
+    /** フォーカス中かつ0のときは空欄、それ以外は数値（0含む）を表示 */
+    const inputDisplay = (m: number): number | '' => {
+        const val = amounts[m] ?? 0;
+        if (focusedMonth === m && val === 0) return '';
+        return val;
+    };
+
+    const yearOptions = useMemo(() => {
+        const cur = currentFiscalYear();
+        const set = new Set<number>(years);
+        for (let y = cur + 1; y >= cur - 5; y--) set.add(y);
+        return Array.from(set).sort((a, b) => b - a);
+    }, [years]);
+
+    const leftMonths = RESIDENT_TAX_MONTH_ORDER.slice(0, 6);
+    const rightMonths = RESIDENT_TAX_MONTH_ORDER.slice(6);
+    const residentTaxInputClass = 'w-full max-w-[7.5rem] rounded border border-gray-300 px-2 py-1.5 text-sm shadow-sm focus:border-teal-500 focus:ring-1 focus:ring-teal-500';
+
+    const renderMonthCell = (m: number) => {
+        const displayYear = m >= 6 ? fiscalYear : fiscalYear + 1;
+        const val = amounts[m] ?? 0;
+        const monthIdx = RESIDENT_TAX_MONTH_ORDER.indexOf(m);
+        const hasSubsequent = monthIdx < RESIDENT_TAX_MONTH_ORDER.length - 1;
+
+        if (editing) {
+            return (
+                <div className="min-w-0 space-y-1">
+                    <input
+                        type="number"
+                        min="0"
+                        className={residentTaxInputClass}
+                        value={inputDisplay(m)}
+                        onFocus={() => setFocusedMonth(m)}
+                        onBlur={() => setFocusedMonth((cur) => (cur === m ? null : cur))}
+                        onChange={(e) => setMonth(m, e.target.value === '' ? 0 : Number(e.target.value))}
+                    />
+                    {hasSubsequent && focusedMonth === m && (
+                        <button
+                            type="button"
+                            disabled={val === 0}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={() => copyToSubsequent(m)}
+                            className="block max-w-full truncate rounded border border-gray-200 px-2 py-0.5 text-left text-[11px] text-gray-600 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:border-gray-100 disabled:text-gray-300"
+                        >
+                            以降の欄に金額をコピー
+                        </button>
+                    )}
+                </div>
+            );
+        }
+
+        return (
+            <>
+                <span className="text-sm text-gray-800">
+                    {val === 0 ? '0' : val.toLocaleString()}
+                    <span className="ml-0.5 text-xs text-gray-400">円</span>
+                </span>
+                <span className="sr-only">{displayYear}年{m}月</span>
+            </>
+        );
+    };
+
+    return (
+        <SectionShell title="住民税納付額" icon="fa-solid fa-file-invoice" canWrite={canWrite} editing={editing}
+            onEdit={() => setEditing(true)} onCancel={cancel} onSave={save} processing={processing}>
+            <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-700">
+                        年度
+                        <select className="rounded-lg border-gray-300 py-1 text-sm focus:border-teal-500 focus:ring-teal-500"
+                            value={fiscalYear} onChange={(e) => changeYear(Number(e.target.value))}>
+                            {yearOptions.map((y) => <option key={y} value={y}>{y}年度（{y}年6月〜{y + 1}年5月）</option>)}
+                        </select>
+                    </label>
+                    <span className="text-sm text-gray-500">年税額 <span className="font-bold text-gray-800">{yen(total)}</span></span>
+                </div>
+                <div className="overflow-hidden rounded border border-gray-200">
+                    <table className="w-full table-fixed border-collapse text-sm">
+                        <colgroup>
+                            <col className="w-19" />
+                            <col />
+                            <col className="w-19" />
+                            <col />
+                        </colgroup>
+                        <tbody>
+                            {leftMonths.map((leftM, i) => (
+                                <tr key={leftM} className="border-b border-gray-200 last:border-b-0">
+                                    <th className="border-r border-gray-200 bg-gray-50 px-3 py-2.5 text-left align-middle font-normal text-gray-800">
+                                        {leftM}月分
+                                    </th>
+                                    <td className="border-r border-gray-200 px-3 py-2.5 align-top">
+                                        {renderMonthCell(leftM)}
+                                    </td>
+                                    <th className="border-r border-gray-200 bg-gray-50 px-3 py-2.5 text-left align-middle font-normal text-gray-800">
+                                        {rightMonths[i]}月分
+                                    </th>
+                                    <td className="px-3 py-2.5 align-top">
+                                        {renderMonthCell(rightMonths[i])}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </SectionShell>
+    );
+}
+
 function SalaryTab({
-    user, payroll, payItems, payItemValues, commuteRoutes, attendanceItems, options, canWritePayroll,
+    user, payroll, payItems, payItemValues, commuteRoutes, attendanceItems, residentTaxes, standardRewards, standardRewardOptions, socialInsurancePreview, options, canWritePayroll,
 }: {
     user: User; payroll: PayrollData; payItems: PayItemOption[]; payItemValues: Record<number, number>;
-    commuteRoutes: CommuteRoute[]; attendanceItems: AttendanceItemOption[]; options: Options; canWritePayroll: boolean;
+    commuteRoutes: CommuteRoute[]; attendanceItems: AttendanceItemOption[];
+    residentTaxes: ResidentTaxRow[]; standardRewards: StandardRewardRow[]; standardRewardOptions: StandardRewardOption[];
+    socialInsurancePreview: SocialInsurancePreview;
+    options: Options; canWritePayroll: boolean;
 }) {
     const [editing, setEditing] = useState(false);
     const [data, setData] = useState<PayrollData>(payroll);
@@ -1464,42 +2292,64 @@ function SalaryTab({
                 </div>
             </div>
 
-            {/* 社会保険 */}
+            {/* 社会保険 加入設定 */}
             <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-                <div className="border-b border-gray-100 px-5 py-3.5"><h3 className="flex items-center gap-2 text-sm font-bold text-gray-800"><i className="fa-solid fa-shield-heart text-teal-600" /> 健康保険・厚生年金 / 労災・雇用保険</h3></div>
-                <div className="space-y-4 p-5">
-                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-                        <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" disabled={!editing} className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" checked={data.is_social_insurance_enrolled} onChange={(e) => set('is_social_insurance_enrolled', e.target.checked)} /> 社会保険（健康・厚生年金）加入</label>
-                        <label className="inline-flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" disabled={!editing} className="rounded border-gray-300 text-teal-600 focus:ring-teal-500" checked={data.is_employment_insurance_enrolled} onChange={(e) => set('is_employment_insurance_enrolled', e.target.checked)} /> 雇用保険加入</label>
-                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-                            介護保険該当
-                            <select
-                                disabled={!editing}
-                                className="rounded-lg border-gray-300 py-1 text-sm focus:border-teal-500 focus:ring-teal-500 disabled:bg-gray-50"
-                                value={data.care_insurance_override === null || data.care_insurance_override === undefined ? 'auto' : (data.care_insurance_override ? 'on' : 'off')}
-                                onChange={(e) => set('care_insurance_override', e.target.value === 'auto' ? null : e.target.value === 'on')}
-                            >
-                                <option value="auto">自動判定（生年月日／40〜64歳）</option>
-                                <option value="on">対象にする</option>
-                                <option value="off">対象外にする</option>
-                            </select>
-                        </label>
-                    </div>
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                        {num('standard_reward_health', '標準報酬月額(健康保険)')}
-                        {num('standard_reward_pension', '標準報酬月額(厚生年金)')}
+                <div className="border-b border-gray-100 px-5 py-3.5"><h3 className="flex items-center gap-2 text-sm font-bold text-gray-800"><i className="fa-solid fa-shield-halved text-teal-600" /> 社会保険 加入設定</h3></div>
+                <div className="p-5">
+                    <div className="overflow-hidden rounded border border-gray-200">
+                        <MfFormTable>
+                            <MfFormRow label="社会保険（健康・厚生年金）加入">
+                                {editing ? (
+                                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                                        <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                            checked={data.is_social_insurance_enrolled} onChange={(e) => set('is_social_insurance_enrolled', e.target.checked)} />
+                                        加入する
+                                    </label>
+                                ) : (
+                                    data.is_social_insurance_enrolled ? '加入' : '未加入'
+                                )}
+                            </MfFormRow>
+                            <MfFormRow label="雇用保険加入">
+                                {editing ? (
+                                    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
+                                        <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                            checked={data.is_employment_insurance_enrolled} onChange={(e) => set('is_employment_insurance_enrolled', e.target.checked)} />
+                                        加入する
+                                    </label>
+                                ) : (
+                                    data.is_employment_insurance_enrolled ? '加入' : '未加入'
+                                )}
+                            </MfFormRow>
+                            <MfFormRow label="介護保険該当">
+                                {editing ? (
+                                    <select
+                                        className={mfFieldClass}
+                                        value={data.care_insurance_override === null || data.care_insurance_override === undefined ? 'auto' : (data.care_insurance_override ? 'on' : 'off')}
+                                        onChange={(e) => set('care_insurance_override', e.target.value === 'auto' ? null : e.target.value === 'on')}
+                                    >
+                                        <option value="auto">自動判定（生年月日／40〜64歳）</option>
+                                        <option value="on">対象にする</option>
+                                        <option value="off">対象外にする</option>
+                                    </select>
+                                ) : (
+                                    data.care_insurance_override === null || data.care_insurance_override === undefined
+                                        ? '自動判定（生年月日／40〜64歳）'
+                                        : (data.care_insurance_override ? '対象にする' : '対象外にする')
+                                )}
+                            </MfFormRow>
+                        </MfFormTable>
                     </div>
                 </div>
             </div>
 
-            {/* 住民税納付額 */}
-            <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
-                <div className="border-b border-gray-100 px-5 py-3.5"><h3 className="flex items-center gap-2 text-sm font-bold text-gray-800"><i className="fa-solid fa-file-invoice text-teal-600" /> 住民税納付額</h3></div>
-                <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
-                    {num('resident_tax_monthly', '住民税(毎月)')}
-                    {num('resident_tax_june', '住民税(6月)')}
-                </div>
-            </div>
+            {/* 健康保険・厚生年金 / 労災・雇用保険（届出情報＋社会保険料） */}
+            <InsuranceQualificationSection user={user} payroll={payroll} preview={socialInsurancePreview} options={options} canWrite={canWritePayroll} />
+
+            {/* 標準報酬月額（適用開始月 + 保険料額表） */}
+            <StandardRewardSection user={user} rows={standardRewards} gradeOptions={standardRewardOptions} canWrite={canWritePayroll} />
+
+            {/* 住民税納付額（年度・月別） */}
+            <ResidentTaxScheduleSection user={user} residentTaxes={residentTaxes} canWrite={canWritePayroll} />
 
             {/* 支払情報（振込先口座） */}
             <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">
@@ -1569,7 +2419,7 @@ function HistoryCard({ histories }: { histories: UserStatusHistory[] }) {
 
 type TabKey = 'general' | 'salary' | 'note';
 
-export default function UserShow({ user, payroll, dependents, leaves, histories, payItems, payItemValues, commuteRoutes, attendanceItems, options }: Props) {
+export default function UserShow({ user, payroll, dependents, leaves, histories, payItems, payItemValues, commuteRoutes, attendanceItems, residentTaxes, standardRewards, standardRewardOptions, socialInsurancePreview, options }: Props) {
     const canWrite = useAdminPermission('users');
     const canWritePayroll = useAdminPermission('payroll');
     const status = (user.employment_status ?? (user.is_active ? 'active' : 'retired')) as EmploymentStatus;
@@ -1663,14 +2513,14 @@ export default function UserShow({ user, payroll, dependents, leaves, histories,
                             <EmploymentSection user={user} canWrite={canWrite} />
                             <WorkSection user={user} payroll={payroll} canWrite={canWrite} options={options} />
                             <LeaveSection user={user} leaves={leaves} canWrite={canWrite} leaveTypes={options.leaveTypes} />
-                            <ResidentTaxSection user={user} payroll={payroll} canWrite={canWrite} />
+                            <ResidentTaxSection user={user} payroll={payroll} canWrite={canWrite} options={options} />
                             <IncomeTaxSection user={user} payroll={payroll} canWrite={canWrite} options={options} />
                             <DependentSection user={user} dependents={dependents} canWrite={canWrite} options={options} />
                             <HistoryCard histories={histories} />
                         </div>
                     )}
 
-                    {tab === 'salary' && <SalaryTab user={user} payroll={payroll} payItems={payItems} payItemValues={payItemValues} commuteRoutes={commuteRoutes} attendanceItems={attendanceItems} options={options} canWritePayroll={canWritePayroll} />}
+                    {tab === 'salary' && <SalaryTab user={user} payroll={payroll} payItems={payItems} payItemValues={payItemValues} commuteRoutes={commuteRoutes} attendanceItems={attendanceItems} residentTaxes={residentTaxes} standardRewards={standardRewards} standardRewardOptions={standardRewardOptions} socialInsurancePreview={socialInsurancePreview} options={options} canWritePayroll={canWritePayroll} />}
 
                     {tab === 'note' && <NoteTab user={user} canWrite={canWrite} />}
 
