@@ -25,10 +25,16 @@ Route::middleware(['punch.access'])->group(function () {
             })
             ->orderBy('name');
 
-        // 店舗別画面: 所属部門（店舗）でメンバーを絞り込む。
-        // 給与の所属事業所は全員本社でも、打刻・勤怠は部門単位で管理する。
+        // 店舗別画面: 所属店舗でメンバーを絞り込む。
+        // 主所属(users.department_id) または 掛け持ち(department_user) のいずれかに一致すれば表示する。
+        // これにより pivot 未登録の従業員も主所属店舗には従来どおり表示される。
+        // 複数店舗を掛け持ちする従業員は、所属する各店舗の打刻画面に表示される。
+        // 給与の所属事業所は全員本社でも、打刻・勤怠は店舗単位で管理する。
         if ($department) {
-            $query->where('department_id', $department->id);
+            $query->where(function ($q) use ($department) {
+                $q->where('department_id', $department->id)
+                    ->orWhereHas('departments', fn ($qq) => $qq->where('departments.id', $department->id));
+            });
         }
 
         if ($useDepartment) {
@@ -44,9 +50,9 @@ Route::middleware(['punch.access'])->group(function () {
             ->where('work_date', $today)
             ->orderBy('clock_in_at');
 
-        // 当日打刻も店舗別画面と同じく部門で絞り込む
+        // 当日打刻は「その店舗で実際に打刻された」レコードで絞り込む（打刻時の店舗スナップショット）。
         if ($department) {
-            $attendanceQuery->whereHas('user', fn ($q) => $q->where('department_id', $department->id));
+            $attendanceQuery->where('department_id', $department->id);
         }
 
         return Inertia::render('Welcome', [

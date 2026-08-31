@@ -12,8 +12,8 @@ class CheckPunchTerminal
     /** クッキー名 */
     private const COOKIE_NAME = 'punch_terminal';
 
-    /** クッキー有効期間（分）: 30日 */
-    private const COOKIE_TTL = 60 * 24 * 30;
+    /** クッキー有効期間（分）: 50年（常設タブレット向け） */
+    private const COOKIE_TTL = 60 * 24 * 365 * 50;
 
     public function handle(Request $request, Closure $next): Response
     {

@@ -159,6 +159,9 @@ class UserController extends Controller
                 'password' => Str::password(32),
             ]);
 
+            // 打刻表示用の所属店舗(多対多)を主所属で初期化する。
+            $this->syncDepartments($user, [], $validated['department_id'] ?? null);
+
             $user->employeePayroll()->create([
                 'employee_no' => $validated['employee_no'] ?? null,
                 'employment_type' => $validated['employment_type'],
@@ -185,6 +188,7 @@ class UserController extends Controller
     {
         $user->load([
             'department',
+            'departments:id,name',
             'employeePayroll.businessLocation',
             'employeePayroll.jobTitle',
             'employeePayroll.closingDateGroup',
@@ -268,6 +272,8 @@ class UserController extends Controller
                 'birth_date' => $user->birth_date?->toDateString(),
                 'joined_at' => $user->joined_at?->toDateString(),
                 'retirement_date' => $user->retirement_date?->toDateString(),
+                // 打刻表示用の所属店舗ID一覧（主所属を含む）
+                'department_ids' => $user->departments->pluck('id')->all(),
             ]),
             'payroll' => $ep ? array_merge($ep->toArray(), [
                 'employment_industry_type' => $ep->businessLocation?->employment_industry_type,
@@ -542,6 +548,8 @@ class UserController extends Controller
             'closing_date_group_id' => ['nullable', 'exists:closing_date_groups,id'],
             'business_location_id' => ['nullable', 'exists:business_locations,id'],
             'department_id' => ['nullable', 'exists:departments,id'],
+            'department_ids' => ['nullable', 'array'],
+            'department_ids.*' => ['integer', 'exists:departments,id'],
             'job_title_id' => ['nullable', 'exists:job_titles,id'],
             'position' => ['nullable', 'string', 'max:255'],
             'work_hours_per_day' => ['nullable', 'numeric', 'min:0', 'max:24'],
@@ -549,8 +557,11 @@ class UserController extends Controller
             'work_hours_monthly_avg' => ['nullable', 'numeric', 'min:0', 'max:744'],
         ]);
 
-        // 部門は users テーブル、それ以外は employee_payrolls テーブル。
+        // 主部門は users テーブル、それ以外は employee_payrolls テーブル。
         $user->update(['department_id' => $data['department_id'] ?? null]);
+
+        // 打刻表示用の所属店舗(多対多)を同期する。主所属は必ず含める。
+        $this->syncDepartments($user, $data['department_ids'] ?? [], $data['department_id'] ?? null);
 
         $this->savePayroll($user, [
             'employee_no' => $data['employee_no'] ?? null,
@@ -564,6 +575,29 @@ class UserController extends Controller
             'work_days_monthly_avg' => $data['work_days_monthly_avg'] ?? null,
             'work_hours_monthly_avg' => $data['work_hours_monthly_avg'] ?? null,
         ]);
+    }
+
+    /**
+     * 打刻表示用の所属店舗(department_user)を同期する。
+     *
+     * 主所属($primaryId)は必ず含め、is_primary=true を立てる。
+     * $extraIds は掛け持ち店舗（主所属以外）。給与計算には影響しない表示専用の関連。
+     *
+     * @param  array<int, int|string>  $extraIds
+     */
+    private function syncDepartments(User $user, array $extraIds, ?int $primaryId): void
+    {
+        $ids = collect($extraIds)
+            ->map(fn ($id) => (int) $id)
+            ->when($primaryId, fn ($c) => $c->push((int) $primaryId))
+            ->unique()
+            ->values();
+
+        $sync = $ids->mapWithKeys(fn ($id) => [
+            $id => ['is_primary' => $primaryId !== null && $id === (int) $primaryId],
+        ])->all();
+
+        $user->departments()->sync($sync);
     }
 
     private function updateIncomeTax(Request $request, User $user): void

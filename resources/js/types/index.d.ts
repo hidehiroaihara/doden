@@ -151,6 +151,9 @@ export interface User {
     role: number;
     department_id?: number | null;
     department?: Department | null;
+    /** 打刻表示用の所属店舗ID一覧（主所属を含む多対多） */
+    department_ids?: number[];
+    departments?: Pick<Department, 'id' | 'name'>[];
     /** 給与情報(employee_payrolls)経由の所属事業所 */
     business_location_id?: number | null;
     business_location?: Pick<BusinessLocation, 'id' | 'name'> | null;

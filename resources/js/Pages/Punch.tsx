@@ -130,6 +130,8 @@ export default function Punch({ user, store, serverTime }: Props) {
         try {
             const res = await axios.post(`/api/attendance/${type}`, {
                 user_id: user.id,
+                // 出勤時は打刻した店舗を記録する（店舗別画面から遷移した場合のみ）。
+                department_id: type === 'clock-in' ? store?.id ?? null : undefined,
                 photo,
             });
             const att: Attendance = res.data.attendance;

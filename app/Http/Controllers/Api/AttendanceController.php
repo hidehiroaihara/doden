@@ -38,6 +38,7 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
+            'department_id' => ['nullable', 'exists:departments,id'],
             'photo' => ['required', 'string'],
         ]);
 
@@ -54,11 +55,16 @@ class AttendanceController extends Controller
             ], 409);
         }
 
+        // 打刻した店舗を勤怠へスナップショット保存する。
+        // 店舗別画面からの打刻(department_id)を優先し、所属外の店舗は拒否する。
+        // 店舗指定が無い場合は主所属(users.department_id)へフォールバック。
+        $departmentId = $this->resolvePunchDepartmentId($user, $request->input('department_id'));
+
         $photoPath = $this->photoStorage->storeFromBase64($request->input('photo'), 'clock_in');
 
         $attendance = Attendance::create([
             'user_id' => $user->id,
-            'department_id' => $user->department_id,
+            'department_id' => $departmentId,
             'work_date' => $today,
             'clock_in_at' => Carbon::now(),
             'clock_in_photo_path' => $photoPath,
@@ -205,5 +211,25 @@ class AttendanceController extends Controller
             'attendance' => $attendance->fresh()->load('attendanceBreaks'),
             'break'      => $openBreak->fresh(),
         ]);
+    }
+
+    /**
+     * 打刻レコードへ保存する店舗ID（打刻時スナップショット）を決定する。
+     *
+     * 店舗別画面から渡された department_id を優先するが、その従業員の所属店舗
+     * （users.department_id または department_user）でなければ主所属へフォールバックする。
+     */
+    private function resolvePunchDepartmentId(User $user, mixed $departmentId): ?int
+    {
+        if ($departmentId === null || $departmentId === '') {
+            return $user->department_id;
+        }
+
+        $departmentId = (int) $departmentId;
+
+        $belongs = $departmentId === (int) $user->department_id
+            || $user->departments()->where('departments.id', $departmentId)->exists();
+
+        return $belongs ? $departmentId : $user->department_id;
     }
 }

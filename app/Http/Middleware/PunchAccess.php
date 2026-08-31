@@ -11,45 +11,39 @@ use Symfony\Component\HttpFoundation\Response;
  * 打刻画面・打刻APIのアクセス制御（IP 一致 OR 端末キーの「どちらか」で許可）。
  *
  * ┌─ 判定ルール ───────────────────────────────────────────────┐
- * │ ・ALLOWED_IPS も端末も未登録  → 制限なし（開発・初期状態）      │
- * │ ・クライアントIPが ALLOWED_IPS に一致 → 通過（店内のノーマルURL）│
- * │ ・有効な端末Cookie／terminal_id+key で認証 → 通過（複雑URL直打ち）│
+ * │ ・ALLOWED_IPS が設定されていてクライアントIPが一致 → 通過        │
+ * │ ・有効な端末Cookie／terminal_id+key で認証 → 通過（認証URL運用）  │
  * │ ・いずれも満たさない → 403                                    │
  * └───────────────────────────────────────────────────────────┘
  *
- * これにより「店内なら普通のURL、外からは認証付きの複雑URL」が両立する。
+ * IP は「任意の追加許可経路」。ALLOWED_IPS が未設定でも、認証URL（端末キー）
+ * だけでアクセスできる。逆に認証情報が一切無ければ（端末0件・Cookie/キー無し）
+ * 打刻画面・APIは開けない（「設定なし＝全開放」の抜け道は持たない）。
  */
 class PunchAccess
 {
     /** 端末認証Cookie名 */
     private const COOKIE_NAME = 'punch_terminal';
 
-    /** Cookie有効期間（分）: 30日 */
-    private const COOKIE_TTL = 60 * 24 * 30;
+    /** Cookie有効期間（分）: 50年（常設タブレット向け。認証URLを1回開けば実質切れない運用） */
+    private const COOKIE_TTL = 60 * 24 * 365 * 50;
 
     public function handle(Request $request, Closure $next): Response
     {
-        $ipConfigured       = $this->allowedIps() !== [];
-        $terminalConfigured = Terminal::exists();
-
-        // どちらも未設定 → 制限なし（従来どおり）
-        if (! $ipConfigured && ! $terminalConfigured) {
+        // ① IP 一致で通過（ALLOWED_IPS が設定されている場合のみ有効な追加許可経路）。
+        //    ALLOWED_IPS 未設定なら IP 判定はスキップし、認証URL（端末キー）に委ねる。
+        if ($this->allowedIps() !== [] && $this->ipMatches((string) $request->ip())) {
             return $next($request);
         }
 
-        // ① IP 一致で通過（店内のノーマルURL）
-        if ($ipConfigured && $this->ipMatches((string) $request->ip())) {
-            return $next($request);
+        // ② 端末認証で通過（認証URLの terminal_id+key / 発行済み Cookie）。
+        $viaTerminal = $this->tryTerminal($request, $next);
+        if ($viaTerminal !== null) {
+            return $viaTerminal;
         }
 
-        // ② 端末認証で通過（複雑URL直打ち / Cookie）
-        if ($terminalConfigured) {
-            $viaTerminal = $this->tryTerminal($request, $next);
-            if ($viaTerminal !== null) {
-                return $viaTerminal;
-            }
-        }
-
+        // IP も端末認証も満たさない場合は不許可。
+        // 端末0件・Cookie/キー無しでは打刻画面/APIは開けない（認証URL必須）。
         abort(403, 'アクセスが許可されていません。');
     }
 

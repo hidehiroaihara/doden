@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -116,6 +117,17 @@ class User extends Authenticatable
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /**
+     * 所属店舗（打刻表示用の多対多）。主所属も含む。
+     * users.department_id は主所属として維持し、pivot にも is_primary=true で保持する。
+     */
+    public function departments(): BelongsToMany
+    {
+        return $this->belongsToMany(Department::class)
+            ->withPivot('is_primary')
+            ->withTimestamps();
     }
 
     public function attendances(): HasMany

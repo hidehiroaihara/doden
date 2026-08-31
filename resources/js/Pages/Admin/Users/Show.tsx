@@ -1113,6 +1113,7 @@ function WorkSection({ user, payroll, canWrite, options }: { user: User; payroll
         closing_date_group_id: payroll.closing_date_group_id ?? '',
         business_location_id: payroll.business_location_id ?? '',
         department_id: user.department_id ?? '',
+        department_ids: (user.department_ids ?? []) as number[],
         job_title_id: payroll.job_title_id ?? '',
         position: payroll.position ?? '',
         work_hours_per_day: payroll.work_hours_per_day ?? '',
@@ -1152,11 +1153,47 @@ function WorkSection({ user, payroll, canWrite, options }: { user: User; payroll
                             {options.businessLocations.map((l) => <option key={l.id} value={String(l.id)}>{l.name}</option>)}
                         </select>
                     </div>
-                    <div><label className={fieldLabel}>部門</label>
-                        <select className={inputClass} value={String(s.data.department_id)} onChange={(e) => s.set('department_id', e.target.value)}>
+                    <div><label className={fieldLabel}>主部門（店舗）</label>
+                        <select className={inputClass} value={String(s.data.department_id)} onChange={(e) => {
+                            const v = e.target.value;
+                            s.set('department_id', v);
+                            // 主部門は必ず所属店舗に含める
+                            if (v !== '') {
+                                const id = Number(v);
+                                if (!(s.data.department_ids as number[]).includes(id)) {
+                                    s.set('department_ids', [...(s.data.department_ids as number[]), id]);
+                                }
+                            }
+                        }}>
                             <option value="">未設定</option>
                             {options.departments.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
                         </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                        <label className={fieldLabel}>所属店舗（打刻画面に表示）</label>
+                        <p className="mb-1.5 text-xs text-gray-400">複数店舗を掛け持ちする場合は、打刻画面に表示したい店舗をすべて選択してください。主部門は自動で含まれます。</p>
+                        <div className="flex flex-wrap gap-x-5 gap-y-2 pt-0.5">
+                            {options.departments.map((d) => {
+                                const ids = s.data.department_ids as number[];
+                                const checked = ids.includes(d.id);
+                                const isPrimary = String(d.id) === String(s.data.department_id);
+                                return (
+                                    <label key={d.id} className="inline-flex items-center gap-2 text-sm text-gray-700">
+                                        <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500 disabled:opacity-50"
+                                            checked={checked}
+                                            disabled={isPrimary}
+                                            onChange={(e) => {
+                                                if (e.target.checked) {
+                                                    s.set('department_ids', [...ids, d.id]);
+                                                } else {
+                                                    s.set('department_ids', ids.filter((x) => x !== d.id));
+                                                }
+                                            }} />
+                                        {d.name}{isPrimary && <span className="text-xs text-teal-600">(主)</span>}
+                                    </label>
+                                );
+                            })}
+                        </div>
                     </div>
                     <div><label className={fieldLabel}>職種</label>
                         <select className={inputClass} value={String(s.data.job_title_id)} onChange={(e) => s.set('job_title_id', e.target.value)}>
@@ -1176,7 +1213,12 @@ function WorkSection({ user, payroll, canWrite, options }: { user: User; payroll
                     <Row label="給与区分" value={PAY_TYPE_RADIO.find((p) => p.value === payroll.pay_type)?.label} />
                     <Row label="締め日グループ" value={options.closingDateGroups.find((c) => c.id === payroll.closing_date_group_id)?.name} />
                     <Row label="所属事業所" value={options.businessLocations.find((l) => l.id === payroll.business_location_id)?.name} />
-                    <Row label="部門" value={user.department?.name} />
+                    <Row label="主部門（店舗）" value={user.department?.name} />
+                    <Row label="所属店舗（打刻表示）" value={
+                        (user.department_ids ?? []).length > 0
+                            ? options.departments.filter((d) => (user.department_ids ?? []).includes(d.id)).map((d) => d.name).join('、')
+                            : ''
+                    } />
                     <Row label="職種" value={options.jobTitles.find((j) => j.id === payroll.job_title_id)?.name} />
                     <Row label="役職" value={payroll.position} />
                     <Row label="1日の所定労働時間" value={payroll.work_hours_per_day ? `${payroll.work_hours_per_day} 時間` : ''} />
