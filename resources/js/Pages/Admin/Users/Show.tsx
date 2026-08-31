@@ -1613,25 +1613,53 @@ function InsuranceQualificationSection({
         pension_premium_employer: p.pension_premium_employer ?? null,
     });
 
-    const [editing, setEditing] = useState(false);
+    type InsSection = 'health' | 'premiums' | 'labor';
+
+    const HEALTH_KEYS: (keyof InsForm)[] = [
+        'is_short_time_worker', 'is_miner',
+        'health_qualified_at', 'health_lost_at', 'health_lost_reason', 'health_insured_number',
+        'pension_qualified_at', 'pension_lost_at', 'pension_lost_reason', 'basic_pension_number',
+    ];
+    const PREMIUM_KEYS: (keyof InsForm)[] = [
+        'health_premium_mode', 'health_premium_employee', 'health_premium_employer',
+        'nursing_premium_mode', 'nursing_premium_employee', 'nursing_premium_employer',
+        'child_premium_mode', 'child_premium_employee', 'child_premium_employer',
+        'pension_premium_mode', 'pension_premium_employee', 'pension_premium_employer',
+    ];
+    const LABOR_KEYS: (keyof InsForm)[] = [
+        'accident_employee_type',
+        'employment_qualified_at', 'employment_lost_at', 'employment_lost_reason', 'employment_insured_number',
+    ];
+
+    const [editing, setEditing] = useState<Record<InsSection, boolean>>({
+        health: false,
+        premiums: false,
+        labor: false,
+    });
     const [data, setData] = useState<InsForm>(() => build(payroll));
     const [processing, setProcessing] = useState(false);
     const set = <K extends keyof InsForm>(k: K, v: InsForm[K]) => setData((d) => ({ ...d, [k]: v }));
 
-    const cancel = () => { setData(build(payroll)); setEditing(false); };
-    const save = () => {
+    const cancelSection = (section: InsSection) => {
+        const fresh = build(payroll);
+        const keys = section === 'health' ? HEALTH_KEYS : section === 'premiums' ? PREMIUM_KEYS : LABOR_KEYS;
+        setData((d) => ({ ...d, ...Object.fromEntries(keys.map((k) => [k, fresh[k]])) } as InsForm));
+        setEditing((e) => ({ ...e, [section]: false }));
+    };
+
+    const saveSection = (section: InsSection) => {
         setProcessing(true);
         router.put(route('admin.users.section', { user: user.id, section: 'insurance' }), data as never, {
             preserveScroll: true,
-            onSuccess: () => setEditing(false),
+            onSuccess: () => setEditing((e) => ({ ...e, [section]: false })),
             onFinish: () => setProcessing(false),
         });
     };
 
     const insFieldClass = `${mfFieldClass} max-w-md`;
-    const insDateRow = (k: keyof InsForm, label: string) => (
+    const insDateRow = (k: keyof InsForm, label: string, isEditing: boolean) => (
         <MfFormRow label={label}>
-            {editing ? (
+            {isEditing ? (
                 <input type="date" className={insFieldClass}
                     value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)} />
             ) : (
@@ -1639,9 +1667,9 @@ function InsuranceQualificationSection({
             )}
         </MfFormRow>
     );
-    const insTextRow = (k: keyof InsForm, label: string, ph?: string) => (
+    const insTextRow = (k: keyof InsForm, label: string, isEditing: boolean, ph?: string) => (
         <MfFormRow label={label}>
-            {editing ? (
+            {isEditing ? (
                 <input placeholder={ph} className={insFieldClass}
                     value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)} />
             ) : (
@@ -1649,9 +1677,9 @@ function InsuranceQualificationSection({
             )}
         </MfFormRow>
     );
-    const insSelectRow = (k: keyof InsForm, label: string, optionMap: LabelMap) => (
+    const insSelectRow = (k: keyof InsForm, label: string, optionMap: LabelMap, isEditing: boolean) => (
         <MfFormRow label={label}>
-            {editing ? (
+            {isEditing ? (
                 <select className={insFieldClass}
                     value={(data[k] as string | null) ?? ''} onChange={(e) => set(k, (e.target.value || null) as never)}>
                     <option value="">未選択</option>
@@ -1662,9 +1690,9 @@ function InsuranceQualificationSection({
             )}
         </MfFormRow>
     );
-    const insCheckboxRow = (k: keyof InsForm, label: string) => (
+    const insCheckboxRow = (k: keyof InsForm, label: string, isEditing: boolean) => (
         <MfFormRow label={label}>
-            {editing ? (
+            {isEditing ? (
                 <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-800">
                     <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                         checked={Boolean(data[k])} onChange={(e) => set(k, e.target.checked as never)} />
@@ -1682,25 +1710,44 @@ function InsuranceQualificationSection({
     const employmentIndustryLabel = payroll.employment_industry_type
         ? (options.employmentIndustries[payroll.employment_industry_type] ?? payroll.employment_industry_type)
         : null;
-    const showHealthPension = editing || hasHealthPensionInfo(data);
-    const showEmploymentDetails = editing || hasEmploymentDetailInfo(data);
+    const showHealthPension = editing.health || hasHealthPensionInfo(data);
+    const showEmploymentDetails = editing.labor || hasEmploymentDetailInfo(data);
 
-    const sectionProps = {
-        canWrite, editing, onEdit: () => setEditing(true), onCancel: cancel, onSave: save, processing,
+    const healthSectionProps = {
+        canWrite,
+        editing: editing.health,
+        onEdit: () => setEditing((e) => ({ ...e, health: true })),
+        onCancel: () => cancelSection('health'),
+        onSave: () => saveSection('health'),
+        processing,
+    };
+    const premiumsSectionProps = {
+        canWrite,
+        editing: editing.premiums,
+        onEdit: () => setEditing((e) => ({ ...e, premiums: true })),
+        onCancel: () => cancelSection('premiums'),
+        onSave: () => saveSection('premiums'),
+        processing,
+    };
+    const laborSectionProps = {
+        canWrite,
+        editing: editing.labor,
+        onEdit: () => setEditing((e) => ({ ...e, labor: true })),
+        onCancel: () => cancelSection('labor'),
+        onSave: () => saveSection('labor'),
+        processing,
     };
 
-    const premiumCell = (key: 'health' | 'nursing' | 'child' | 'pension', side: 'employee' | 'employer', employerOnly?: boolean, inactive?: boolean) => {
+    const premiumCell = (key: 'health' | 'nursing' | 'child' | 'pension', side: 'employee' | 'employer', isEditing: boolean, employerOnly?: boolean, inactive?: boolean) => {
         const modeKey = `${key}_premium_mode` as keyof InsForm;
         const amountKey = `${key}_premium_${side}` as keyof InsForm;
         const mode = (data[modeKey] as string) ?? 'table';
         const autoVal = preview.items[key]?.[side] ?? 0;
         const isEmployerSide = side === 'employer';
         const employeeNotApplicable = side === 'employee' && !!employerOnly;
-        // 手入力: 会社欄は事業主負担のみの险种（子ども・子育て支援金）も含め常に入力可。本人欄は該当しない行・介護非該当は不可。
-        const canManualInput = mode === 'manual' && editing && (isEmployerSide || (!employeeNotApplicable && !inactive));
+        const canManualInput = mode === 'manual' && isEditing && (isEmployerSide || (!employeeNotApplicable && !inactive));
 
-        // 閲覧時・額表（自動）: MF と同様に自動計算の文言を表示
-        if (!editing && mode === 'table') {
+        if (!isEditing && mode === 'table') {
             if (inactive || employeeNotApplicable) {
                 return <span className="text-sm text-gray-400">{AUTO_PREMIUM_LABEL}</span>;
             }
@@ -1719,7 +1766,7 @@ function InsuranceQualificationSection({
         }
 
         const shown = mode === 'manual' ? (Number(data[amountKey]) || 0) : autoVal;
-        if (employeeNotApplicable && !editing) {
+        if (employeeNotApplicable && !isEditing) {
             return <span className="text-sm text-gray-600">{AUTO_PREMIUM_LABEL}</span>;
         }
         return <span className={employeeNotApplicable ? 'text-gray-300' : 'text-gray-800'}>{employeeNotApplicable ? '—' : yen(shown)}</span>;
@@ -1728,38 +1775,38 @@ function InsuranceQualificationSection({
     return (
         <div className="space-y-4">
             {/* 健康保険 / 厚生年金保険 */}
-            <SectionShell title="健康保険 / 厚生年金保険" icon="fa-solid fa-shield-heart" {...sectionProps}>
+            <SectionShell title="健康保険 / 厚生年金保険" icon="fa-solid fa-shield-heart" {...healthSectionProps}>
                 {!showHealthPension ? (
                     <p className="text-sm leading-relaxed text-gray-600">
                         健康保険または厚生年金保険情報がありません。編集ボタンから健康保険または厚生年金保険情報を登録してください。
                     </p>
                 ) : (
                     <div className="space-y-4">
-                        {(editing || data.is_short_time_worker || data.is_miner) && (
+                        {(editing.health || data.is_short_time_worker || data.is_miner) && (
                             <MfTableWrap>
                                 <MfFormTable>
                                     <MfFormSectionHeader title="区分" />
-                                    {insCheckboxRow('is_short_time_worker', '短時間就労者（パート）')}
-                                    {insCheckboxRow('is_miner', '坑内夫')}
+                                    {insCheckboxRow('is_short_time_worker', '短時間就労者（パート）', editing.health)}
+                                    {insCheckboxRow('is_miner', '坑内夫', editing.health)}
                                 </MfFormTable>
                             </MfTableWrap>
                         )}
                         <MfTableWrap>
                             <MfFormTable>
                                 <MfFormSectionHeader title="健康保険" />
-                                {insDateRow('health_qualified_at', '資格取得年月日')}
-                                {insTextRow('health_insured_number', '被保険者整理番号')}
-                                {insDateRow('health_lost_at', '資格喪失年月日')}
-                                {insSelectRow('health_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS)}
+                                {insDateRow('health_qualified_at', '資格取得年月日', editing.health)}
+                                {insTextRow('health_insured_number', '被保険者整理番号', editing.health)}
+                                {insDateRow('health_lost_at', '資格喪失年月日', editing.health)}
+                                {insSelectRow('health_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS, editing.health)}
                             </MfFormTable>
                         </MfTableWrap>
                         <MfTableWrap>
                             <MfFormTable>
                                 <MfFormSectionHeader title="厚生年金保険" />
-                                {insDateRow('pension_qualified_at', '資格取得年月日')}
-                                {insTextRow('basic_pension_number', '基礎年金番号')}
-                                {insDateRow('pension_lost_at', '資格喪失年月日')}
-                                {insSelectRow('pension_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS)}
+                                {insDateRow('pension_qualified_at', '資格取得年月日', editing.health)}
+                                {insTextRow('basic_pension_number', '基礎年金番号', editing.health)}
+                                {insDateRow('pension_lost_at', '資格喪失年月日', editing.health)}
+                                {insSelectRow('pension_lost_reason', '資格喪失原因', SOCIAL_INSURANCE_LOST_REASONS, editing.health)}
                             </MfFormTable>
                         </MfTableWrap>
                     </div>
@@ -1767,8 +1814,8 @@ function InsuranceQualificationSection({
             </SectionShell>
 
             {/* 社会保険料 */}
-            <SectionShell title="社会保険料" icon="fa-solid fa-calculator" {...sectionProps}>
-                {editing && !preview.has_rate_set && (
+            <SectionShell title="社会保険料" icon="fa-solid fa-calculator" {...premiumsSectionProps}>
+                {editing.premiums && !preview.has_rate_set && (
                     <p className="mb-3 text-xs text-amber-600"><i className="fa-solid fa-triangle-exclamation mr-1" />事業所に保険料率が未設定です</p>
                 )}
                 <MfTableWrap>
@@ -1776,7 +1823,7 @@ function InsuranceQualificationSection({
                         <thead>
                             <tr className="border-b border-gray-100 bg-gray-50/80">
                                 <th className={`${mfLabelCell} border-r border-gray-100 font-normal`} />
-                                {editing && <th className="w-28 border-r border-gray-100 px-5 py-3 text-left text-xs font-medium text-gray-500">計算区分</th>}
+                                {editing.premiums && <th className="w-28 border-r border-gray-100 px-5 py-3 text-left text-xs font-medium text-gray-500">計算区分</th>}
                                 <th className="border-r border-gray-100 px-5 py-3 text-left text-xs font-medium text-gray-500">保険料（本人）</th>
                                 <th className="px-5 py-3 text-left text-xs font-medium text-gray-500">保険料（会社）</th>
                             </tr>
@@ -1790,7 +1837,7 @@ function InsuranceQualificationSection({
                                 return (
                                     <tr key={row.key} className={`border-b border-gray-100 last:border-b-0 ${dimRow ? 'bg-gray-50/60' : ''}`}>
                                         <th className={`${mfLabelCell} border-r border-gray-100 font-normal ${dimRow ? 'text-gray-400' : ''}`}>{row.label}</th>
-                                        {editing && (
+                                        {editing.premiums && (
                                             <td className="border-r border-gray-100 px-5 py-3 align-middle">
                                                 <select className={`${insFieldClass} max-w-28`}
                                                     value={mode} onChange={(e) => set(modeKey, e.target.value as never)}>
@@ -1799,8 +1846,8 @@ function InsuranceQualificationSection({
                                                 </select>
                                             </td>
                                         )}
-                                        <td className="border-r border-gray-100 px-5 py-3 align-middle">{premiumCell(row.key, 'employee', row.employerOnly, inactive)}</td>
-                                        <td className="px-5 py-3 align-middle">{premiumCell(row.key, 'employer', row.employerOnly, inactive)}</td>
+                                        <td className="border-r border-gray-100 px-5 py-3 align-middle">{premiumCell(row.key, 'employee', editing.premiums, row.employerOnly, inactive)}</td>
+                                        <td className="px-5 py-3 align-middle">{premiumCell(row.key, 'employer', editing.premiums, row.employerOnly, inactive)}</td>
                                     </tr>
                                 );
                             })}
@@ -1812,20 +1859,20 @@ function InsuranceQualificationSection({
                         介護保険料は、生年月日から判定した第2号被保険者の対象外（満40歳未満または65歳以上）のため、額表では0円です。手入力に切り替えると金額を指定できます。
                     </p>
                 )}
-                {editing && (
+                {editing.premiums && (
                     <p className="mt-1.5 text-[11px] text-gray-400">額表: 標準報酬月額と事業所の保険料率から自動計算します。手入力に切り替えると金額を直接指定できます。</p>
                 )}
             </SectionShell>
 
             {/* 労災保険 / 雇用保険 */}
-            <SectionShell title="労災保険 / 雇用保険" icon="fa-solid fa-helmet-safety" {...sectionProps} flush>
+            <SectionShell title="労災保険 / 雇用保険" icon="fa-solid fa-helmet-safety" {...laborSectionProps} flush>
                 <MfTableWrap>
                     <MfFormTable>
                         <MfFormRow label="労災保険料の事業">
                             {accidentIndustryLabel ?? <span className="text-gray-400">未設定（所属事業所の労働保険設定を確認してください）</span>}
                         </MfFormRow>
                         <MfFormRow label="従業員区分">
-                            {editing ? (
+                            {editing.labor ? (
                                 <select className={insFieldClass} value={data.accident_employee_type} onChange={(e) => set('accident_employee_type', e.target.value)}>
                                     {Object.entries(ACCIDENT_EMPLOYEE_TYPES).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                                 </select>
@@ -1836,10 +1883,10 @@ function InsuranceQualificationSection({
                         <MfFormRow label="雇用保険料の事業">
                             {employmentIndustryLabel ?? <span className="text-gray-400">未設定（所属事業所の労働保険設定を確認してください）</span>}
                         </MfFormRow>
-                        {insDateRow('employment_qualified_at', '資格取得年月日')}
-                        {showEmploymentDetails && insTextRow('employment_insured_number', '被保険者番号')}
-                        {showEmploymentDetails && insDateRow('employment_lost_at', '離職等年月日')}
-                        {showEmploymentDetails && insSelectRow('employment_lost_reason', '資格喪失原因', EMPLOYMENT_LOST_REASONS)}
+                        {insDateRow('employment_qualified_at', '資格取得年月日', editing.labor)}
+                        {showEmploymentDetails && insTextRow('employment_insured_number', '被保険者番号', editing.labor)}
+                        {showEmploymentDetails && insDateRow('employment_lost_at', '離職等年月日', editing.labor)}
+                        {showEmploymentDetails && insSelectRow('employment_lost_reason', '資格喪失原因', EMPLOYMENT_LOST_REASONS, editing.labor)}
                     </MfFormTable>
                 </MfTableWrap>
                 {(!payroll.employment_industry_type || !payroll.accident_industry_code) && (
