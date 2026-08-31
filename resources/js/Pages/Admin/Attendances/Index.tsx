@@ -23,6 +23,7 @@ interface AttendanceItem {
     clock_out_photo_path: string | null;
     break_minutes: number | null;
     attendance_breaks?: BreakRecord[];
+    department?: { id: number; name: string } | null;
     user: { id: number; name: string };
 }
 
@@ -449,6 +450,7 @@ export default function AttendancesIndex({ attendances, users, filters }: Props)
                                     <tr>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">日付</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">ユーザー</th>
+                                        <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">打刻店舗</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">出勤</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">退勤</th>
                                         <th className="px-6 py-3 text-left text-xs font-medium uppercase text-gray-500">休憩</th>
@@ -472,6 +474,9 @@ export default function AttendancesIndex({ attendances, users, filters }: Props)
                                                     >
                                                         {a.user.name}
                                                     </Link>
+                                                </td>
+                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+                                                    {a.department?.name ?? '—'}
                                                 </td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm text-green-600 font-medium">{formatTime(a.clock_in_at)}</td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm font-medium">

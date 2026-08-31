@@ -14,6 +14,8 @@ interface Props {
     /** 店舗別画面から遷移した場合のみ設定。打刻後は同じ店舗画面へ戻す。 */
     store?: { id: number; name: string } | null;
     serverTime: string;
+    /** 打刻時に顔写真（カメラ・顔認識）を使用するか。false ならカメラを表示しない。 */
+    usePhoto?: boolean;
 }
 
 type PunchStatus = 'idle' | 'submitting' | 'success' | 'error';
@@ -53,7 +55,7 @@ function formatTime(datetime: string | null) {
     return new Date(datetime).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function Punch({ user, store, serverTime }: Props) {
+export default function Punch({ user, store, serverTime, usePhoto = false }: Props) {
     const now = useServerClock(serverTime);
     const playStamping = useStampingSound();
     const homeUrl = store ? route('home.store', store.id) : route('home');
@@ -91,37 +93,46 @@ export default function Punch({ user, store, serverTime }: Props) {
 
     useEffect(() => {
         fetchToday();
-        startCamera();
+        if (usePhoto) {
+            startCamera();
+        }
         return () => {
-            stopCamera();
-            stopDetection();
+            if (usePhoto) {
+                stopCamera();
+                stopDetection();
+            }
         };
     }, []);
 
     useEffect(() => {
-        if (cameraReady) {
+        if (usePhoto && cameraReady) {
             startDetection();
         }
-    }, [cameraReady, startDetection]);
+    }, [usePhoto, cameraReady, startDetection]);
 
     const isOnBreak = useMemo(
         () => breaks.length > 0 && breaks[breaks.length - 1].ended_at === null,
         [breaks],
     );
 
-    const canClockIn = !attendance && faceInGuide && status !== 'submitting';
-    const canClockOut = !!(attendance && !attendance.clock_out_at && faceInGuide && status !== 'submitting');
-    const canBreakStart = !!(attendance && !attendance.clock_out_at && !isOnBreak && faceInGuide && status !== 'submitting');
-    const canBreakEnd = !!(attendance && !attendance.clock_out_at && isOnBreak && faceInGuide && status !== 'submitting');
+    // 顔写真ONのときのみガイド枠内判定を必須にする。OFF時はカメラなしで打刻可能。
+    const photoOk = usePhoto ? faceInGuide : true;
+    const canClockIn = !attendance && photoOk && status !== 'submitting';
+    const canClockOut = !!(attendance && !attendance.clock_out_at && photoOk && status !== 'submitting');
+    const canBreakStart = !!(attendance && !attendance.clock_out_at && !isOnBreak && photoOk && status !== 'submitting');
+    const canBreakEnd = !!(attendance && !attendance.clock_out_at && isOnBreak && photoOk && status !== 'submitting');
     const isAllDone = attendance?.clock_in_at && attendance?.clock_out_at;
     const hasClockedIn = !!(attendance?.clock_in_at && !attendance?.clock_out_at);
 
     const handlePunch = async (type: 'clock-in' | 'clock-out') => {
-        const photo = capturePhoto(FACE_GUIDE);
-        if (!photo) {
-            setMessage('写真の撮影に失敗しました');
-            setStatus('error');
-            return;
+        let photo: string | null = null;
+        if (usePhoto) {
+            photo = capturePhoto(FACE_GUIDE);
+            if (!photo) {
+                setMessage('写真の撮影に失敗しました');
+                setStatus('error');
+                return;
+            }
         }
 
         setStatus('submitting');
@@ -132,7 +143,7 @@ export default function Punch({ user, store, serverTime }: Props) {
                 user_id: user.id,
                 // 出勤時は打刻した店舗を記録する（店舗別画面から遷移した場合のみ）。
                 department_id: type === 'clock-in' ? store?.id ?? null : undefined,
-                photo,
+                photo: photo ?? undefined,
             });
             const att: Attendance = res.data.attendance;
             setAttendance(att);
@@ -149,11 +160,14 @@ export default function Punch({ user, store, serverTime }: Props) {
     };
 
     const handleBreak = async (type: 'break-start' | 'break-end') => {
-        const photo = capturePhoto(FACE_GUIDE);
-        if (!photo) {
-            setMessage('写真の撮影に失敗しました');
-            setStatus('error');
-            return;
+        let photo: string | null = null;
+        if (usePhoto) {
+            photo = capturePhoto(FACE_GUIDE);
+            if (!photo) {
+                setMessage('写真の撮影に失敗しました');
+                setStatus('error');
+                return;
+            }
         }
 
         setStatus('submitting');
@@ -162,7 +176,7 @@ export default function Punch({ user, store, serverTime }: Props) {
         try {
             const res = await axios.post(`/api/attendance/${type}`, {
                 user_id: user.id,
-                photo,
+                photo: photo ?? undefined,
             });
             const att: Attendance = res.data.attendance;
             setAttendance(att);
@@ -194,12 +208,40 @@ export default function Punch({ user, store, serverTime }: Props) {
                         <Link href={homeUrl} className="text-sm text-gray-500 hover:text-gray-700">
                             &larr; 戻る
                         </Link>
-                        <h1 className="text-base font-bold text-gray-800 sm:text-lg">{user.name}</h1>
+                        {usePhoto ? (
+                            <h1 className="text-base font-bold text-gray-800 sm:text-lg">{user.name}</h1>
+                        ) : (
+                            <span className="text-sm text-gray-400">打刻</span>
+                        )}
                         <div className="w-10" />
                     </div>
                 </header>
 
                 <div className="mx-auto max-w-2xl px-4 py-2 sm:px-6 sm:py-4">
+                    {/* 顔写真OFF時: 名前確認（日付の上に大きく表示） */}
+                    {!usePhoto && (
+                        <div className="mb-3 overflow-hidden rounded-2xl border-2 border-indigo-200 bg-linear-to-b from-indigo-50 to-white shadow-sm sm:mb-4">
+                            <div className="border-b border-indigo-100 bg-indigo-600 px-4 py-2 text-center">
+                                <p className="text-xs font-semibold tracking-wide text-indigo-100 sm:text-sm">
+                                    打刻する方の名前をご確認ください
+                                </p>
+                            </div>
+                            <div className="px-4 py-5 text-center sm:py-6">
+                                <p className="text-3xl font-black leading-tight tracking-tight text-gray-900 sm:text-4xl md:text-5xl">
+                                    {user.name}
+                                </p>
+                                {store?.name && (
+                                    <p className="mt-2 text-sm font-medium text-indigo-600 sm:text-base">
+                                        {store.name}
+                                    </p>
+                                )}
+                                <p className="mt-3 text-xs text-gray-500 sm:text-sm">
+                                    名前が違う場合は「戻る」から正しい方を選び直してください
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Date & Status */}
                     <div className="mb-2 overflow-hidden rounded-xl bg-white shadow-sm sm:mb-3">
                         <div className="border-b border-gray-100 bg-gray-50 px-3 py-2 sm:px-4 sm:py-3">
@@ -236,7 +278,8 @@ export default function Punch({ user, store, serverTime }: Props) {
                         </div>
                     </div>
 
-                    {/* Camera */}
+                    {/* Camera（顔写真ON時のみ表示） */}
+                    {usePhoto && (
                     <div className="mb-2 overflow-hidden rounded-xl bg-black shadow-sm sm:mb-3">
                         <div className="relative aspect-video max-h-[min(38vh,260px)] w-full sm:max-h-[min(48vh,360px)] lg:max-h-none">
                             <video
@@ -314,6 +357,7 @@ export default function Punch({ user, store, serverTime }: Props) {
                             )}
                         </div>
                     </div>
+                    )}
 
                     {/* Server Clock */}
                     <div className="mb-2 rounded-xl border border-gray-200 bg-white py-2 sm:mb-3 sm:py-3">

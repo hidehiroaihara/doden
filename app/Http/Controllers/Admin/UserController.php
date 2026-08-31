@@ -167,6 +167,7 @@ class UserController extends Controller
                 'employment_type' => $validated['employment_type'],
                 'business_location_id' => $validated['business_location_id'] ?? null,
                 'closing_date_group_id' => $validated['closing_date_group_id'] ?? null,
+                'flat_tax_reduction_total' => 0,
             ]);
 
             UserStatusHistory::create([
@@ -1215,7 +1216,7 @@ class UserController extends Controller
             'daily_wage2' => 0,
             'tax_table' => 'kou',
             'dependents_count' => 0,
-            'flat_tax_reduction_total' => null,
+            'flat_tax_reduction_total' => 0,
             'flat_tax_reduction_auto_amount' => 0,
             'flat_tax_reduction_target_count' => 0,
             'flat_tax_reduction_per_person' => 0,

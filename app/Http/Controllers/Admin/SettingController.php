@@ -39,6 +39,8 @@ class SettingController extends Controller
             'salary_round_minutes' => ['required', 'integer', 'min:1', 'max:60'],
             'salary_round_rule' => ['required', 'in:floor,round,ceil'],
             'month_closing_day' => ['nullable', 'integer', 'min:1', 'max:31'],
+            // 打刻時に顔写真（カメラ・顔認識）を使用するか
+            'punch_use_photo' => ['nullable', 'boolean'],
             // 休日区分（給与計算の勤怠項目「所定休日/法定休日」判定に使用）
             'legal_holiday_dows' => ['nullable', 'array'],
             'legal_holiday_dows.*' => ['in:'.implode(',', $dows)],
@@ -51,6 +53,8 @@ class SettingController extends Controller
         Setting::setValue('break_end_time', $validated['break_end_time']);
         Setting::setValue('salary_round_minutes', $validated['salary_round_minutes']);
         Setting::setValue('salary_round_rule', $validated['salary_round_rule']);
+
+        Setting::setValue('punch_use_photo', $request->boolean('punch_use_photo') ? '1' : '0');
 
         Setting::setValue('work_start_time', $validated['work_start_time'] ?: null);
         Setting::setValue('work_end_time', $validated['work_end_time'] ?: null);

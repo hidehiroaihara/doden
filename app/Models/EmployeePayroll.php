@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class EmployeePayroll extends Model
 {
+    /** 定額減税総額: null 以外（0含む）= 手動固定。新規は 0 円（自動計算オフ）。 */
+    protected $attributes = [
+        'flat_tax_reduction_total' => 0,
+    ];
+
     protected $fillable = [
         'user_id',
         'business_location_id',

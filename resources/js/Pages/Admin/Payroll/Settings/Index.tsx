@@ -220,6 +220,7 @@ interface AttendanceSettings {
     break_end_time: string | null;
     salary_round_minutes: string | null;
     salary_round_rule: string | null;
+    punch_use_photo: boolean;
     work_start_time: string | null;
     work_end_time: string | null;
     work_hours_per_day: string | null;
@@ -455,6 +456,7 @@ interface WorkSettingsData {
     break_end_time: string;
     salary_round_minutes: string;
     salary_round_rule: string;
+    punch_use_photo: boolean;
     work_start_time: string;
     work_end_time: string;
     work_hours_per_day: string;
@@ -476,7 +478,7 @@ const DOW_OPTIONS: { value: string; label: string }[] = [
 function WorkSettingsTab({ form, partial, onSave, canWrite }: {
     form: {
         data: WorkSettingsData;
-        setData: (key: keyof WorkSettingsData, value: string | string[]) => void;
+        setData: (key: keyof WorkSettingsData, value: string | string[] | boolean) => void;
         errors: Partial<Record<keyof WorkSettingsData, string>>;
         processing: boolean;
     };
@@ -560,6 +562,26 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                         <p className="mt-1 text-xs text-gray-400">例: 8:15を30分単位 → 切り捨て8:00 / 四捨五入・切り上げ8:30</p>
                     </div>
                 </div>
+            </div>
+
+            {/* 打刻時の顔写真 */}
+            <div className={cardSection}>
+                {head('fa-camera', 'bg-indigo-100 text-indigo-600', '打刻時の顔写真', '打刻画面でカメラ・顔認識を使用し、顔写真を保存するかどうかを切り替えます。')}
+                <label className="flex cursor-pointer items-start gap-3">
+                    <input
+                        type="checkbox"
+                        disabled={!canWrite}
+                        className="mt-0.5 h-5 w-5 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-60"
+                        checked={data.punch_use_photo}
+                        onChange={(e) => setData('punch_use_photo', e.target.checked)}
+                    />
+                    <span>
+                        <span className="block text-sm font-medium text-gray-800">打刻時に顔写真を使用する</span>
+                        <span className="mt-0.5 block text-xs text-gray-400">
+                            OFFにするとカメラ・顔認識を使わず、顔写真なしで打刻できます（出勤・退勤・休憩すべて）。ONにすると従来どおり顔写真の撮影が必須になります。
+                        </span>
+                    </span>
+                </label>
             </div>
 
             {/* 所定時間 */}
@@ -2710,6 +2732,7 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
         break_end_time: attendanceSettings.break_end_time ?? '13:00',
         salary_round_minutes: attendanceSettings.salary_round_minutes ?? '15',
         salary_round_rule: attendanceSettings.salary_round_rule ?? 'floor',
+        punch_use_photo: attendanceSettings.punch_use_photo ?? false,
         work_start_time: attendanceSettings.work_start_time ?? '',
         work_end_time: attendanceSettings.work_end_time ?? '',
         work_hours_per_day: attendanceSettings.work_hours_per_day ?? '',

@@ -28,6 +28,7 @@ interface AttendanceDetail {
     clock_out_at: string | null;
     break_minutes: number | null;
     attendance_breaks?: BreakRow[];
+    department?: { id: number; name: string } | null;
     user: { id: number; name: string };
     edit_logs: EditLog[];
 }
@@ -158,6 +159,13 @@ export default function AttendanceEdit({
                                 <span className="font-bold text-teal-700 text-base">
                                     {new Date(workDate).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' })}
                                 </span>
+                            </p>
+                            <p className="mt-1 text-sm text-gray-500">
+                                打刻店舗:{' '}
+                                <span className="font-medium text-gray-800">
+                                    {attendance.department?.name ?? '—'}
+                                </span>
+                                <span className="ml-2 text-xs text-gray-400">（打刻時に記録・変更不可）</span>
                             </p>
                         </div>
 

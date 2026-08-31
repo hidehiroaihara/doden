@@ -10,6 +10,7 @@ import { useState } from 'react';
 interface DayCell {
     in: string | null;
     out: string | null;
+    store?: string | null;
     attendance_id: number;
     missing_out: boolean;
 }
@@ -258,6 +259,11 @@ export default function MonthlySheet({
                                                                 >
                                                                     {cell.out ?? (cell.missing_out ? '未' : '--:--')}
                                                                 </div>
+                                                                {cell.store && (
+                                                                    <div className="truncate text-[10px] text-gray-400" title={cell.store}>
+                                                                        {cell.store}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         ) : (
                                                             <span className="text-gray-200">・</span>
@@ -276,7 +282,9 @@ export default function MonthlySheet({
                 <p className="text-[11px] text-gray-400">
                     <span className="font-mono text-green-600">上段</span>=出勤 /{' '}
                     <span className="font-mono text-blue-600">下段</span>=退勤（
-                    <span className="text-amber-500">未</span>=退勤打刻なし）。従業員名をクリックすると月別の詳細ページへ移動します。
+                    <span className="text-amber-500">未</span>=退勤打刻なし）。
+                    <span className="text-gray-400">打刻店舗</span>は退勤時刻の下に表示。
+                    従業員名の下は主所属店舗。従業員名をクリックすると月別の詳細ページへ移動します。
                 </p>
             </div>
         </AdminLayout>

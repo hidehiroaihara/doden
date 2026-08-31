@@ -26,7 +26,7 @@ class AttendanceController extends Controller
     {
         [$dateFrom, $dateTo, $month, $year] = $this->resolveDateFilters($request, true);
 
-        $query = Attendance::with(['user', 'attendanceBreaks'])->where('user_id', $user->id)->orderBy('work_date');
+        $query = Attendance::with(['user', 'attendanceBreaks', 'department'])->where('user_id', $user->id)->orderBy('work_date');
         if ($dateFrom) $query->where('work_date', '>=', $dateFrom);
         if ($dateTo) $query->where('work_date', '<=', $dateTo);
 
@@ -197,9 +197,10 @@ class AttendanceController extends Controller
 
         $users = $userQuery->orderByEmployeeNo()->get(['users.id', 'users.name', 'users.department_id']);
 
-        $attendances = Attendance::whereBetween('work_date', [$from, $to])
+        $attendances = Attendance::with('department')
+            ->whereBetween('work_date', [$from, $to])
             ->whereIn('user_id', $users->pluck('id'))
-            ->get(['id', 'user_id', 'work_date', 'clock_in_at', 'clock_out_at']);
+            ->get(['id', 'user_id', 'department_id', 'work_date', 'clock_in_at', 'clock_out_at']);
 
         $dow = ['日', '月', '火', '水', '木', '金', '土'];
         $days = [];
@@ -226,6 +227,7 @@ class AttendanceController extends Controller
             $byUser[$a->user_id][$date] = [
                 'in' => $fmtTime($a->clock_in_at),
                 'out' => $fmtTime($a->clock_out_at),
+                'store' => $a->department?->name,
                 'attendance_id' => $a->id,
                 'missing_out' => (bool) ($a->clock_in_at && ! $a->clock_out_at && Carbon::parse($date)->lt(Carbon::today())),
             ];
@@ -269,7 +271,7 @@ class AttendanceController extends Controller
     public function index(Request $request)
     {
         $today = Carbon::today()->toDateString();
-        $query = Attendance::with(['user', 'attendanceBreaks']);
+        $query = Attendance::with(['user', 'attendanceBreaks', 'department']);
 
         if ($request->filled('user_id')) {
             $query->where('user_id', $request->input('user_id'));
@@ -349,6 +351,7 @@ class AttendanceController extends Controller
 
         $attendance = Attendance::create([
             'user_id' => $validated['user_id'],
+            'department_id' => User::find($validated['user_id'])?->department_id,
             'work_date' => $validated['work_date'],
             'clock_in_at' => $validated['clock_in_at'] ?: null,
             'clock_out_at' => $validated['clock_out_at'] ?: null,
@@ -403,7 +406,7 @@ class AttendanceController extends Controller
 
     public function edit(Request $request, Attendance $attendance)
     {
-        $attendance->load(['user', 'editLogs.modifier', 'attendanceBreaks']);
+        $attendance->load(['user', 'department', 'editLogs.modifier', 'attendanceBreaks']);
 
         return Inertia::render('Admin/Attendances/Edit', [
             'attendance' => $attendance,
@@ -676,7 +679,7 @@ class AttendanceController extends Controller
         $userId = $request->input('user_id');
         $isUserSpecific = !empty($userId);
 
-        $query = Attendance::with(['user.department', 'attendanceBreaks']);
+        $query = Attendance::with(['user.department', 'department', 'attendanceBreaks']);
         if ($isUserSpecific) {
             $query->where('user_id', $userId);
         }
@@ -721,7 +724,7 @@ class AttendanceController extends Controller
         // 最大休憩回数を算出（動的列数）
         $maxBreaks = $attendances->max(fn($a) => $a->attendanceBreaks->count()) ?? 0;
 
-        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '出勤時刻', '退勤時刻', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
+        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '打刻店舗', '出勤時刻', '退勤時刻', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
         if ($hasSchedule) {
             $headers[] = '遅刻';
             $headers[] = '早退';
@@ -860,6 +863,7 @@ class AttendanceController extends Controller
                     $cusNo,
                     $dayCarbon->format('Y-m-d'),
                     $weekdays[$dayCarbon->dayOfWeek] ?? '',
+                    $a?->department?->name ?? '',
                     $a?->clock_in_at?->format('H:i') ?? '',
                     $a?->clock_out_at?->format('H:i') ?? '',
                     ($a && $a->clock_in_at && $a->clock_out_at) ? $breakMin : '',

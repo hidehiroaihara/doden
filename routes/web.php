@@ -82,6 +82,7 @@ Route::middleware(['punch.access'])->group(function () {
             'user' => $user->only(['id', 'name']),
             'store' => $store?->only(['id', 'name']),
             'serverTime' => now()->toIso8601String(),
+            'usePhoto' => \App\Models\Setting::getValue('punch_use_photo', '0') === '1',
         ]);
     })->name('punch');
 });

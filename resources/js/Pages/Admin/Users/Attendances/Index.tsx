@@ -29,6 +29,7 @@ interface AttendanceItem {
     break_minutes: number | null;
     computed_break_minutes: number | null;
     attendance_breaks?: BreakRecord[];
+    department?: { id: number; name: string } | null;
     user: { id: number; name: string };
 }
 
@@ -596,7 +597,7 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }).reverse();
 
-    const colSpan = (hasSchedule ? 10 : 9) - (canWrite ? 0 : 1);
+    const colSpan = (hasSchedule ? 11 : 10) - (canWrite ? 0 : 1);
 
     return (
         <>
@@ -703,6 +704,7 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                             <thead className="bg-gray-50 text-[11px] font-semibold text-gray-500">
                                 <tr>
                                     <th className="px-3 py-2 text-left whitespace-nowrap">日付</th>
+                                    <th className="px-2 py-2 text-center whitespace-nowrap">打刻店舗</th>
                                     <th className="px-2 py-2 text-center whitespace-nowrap">出勤</th>
                                     <th className="px-2 py-2 text-center whitespace-nowrap">退勤</th>
                                     <th className="px-2 py-2 text-center whitespace-nowrap">休憩</th>
@@ -743,6 +745,14 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                                 <span className={`ml-1 text-xs ${getWeekdayColor(dateStr)}`}>
                                                     ({getWeekday(dateStr)})
                                                 </span>
+                                            </td>
+                                            {/* 打刻店舗 */}
+                                            <td className="px-2 py-1.5 text-center whitespace-nowrap">
+                                                {a?.department?.name ? (
+                                                    <span className="text-xs text-gray-500">{a.department.name}</span>
+                                                ) : (
+                                                    <span className="text-gray-300">—</span>
+                                                )}
                                             </td>
                                             {/* 出勤 */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">

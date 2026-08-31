@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Jobs\SendChatworkNotification;
 use App\Models\Attendance;
 use App\Models\AttendanceBreak;
+use App\Models\Setting;
 use App\Models\User;
 use App\Services\PhotoStorageService;
 use Illuminate\Http\JsonResponse;
@@ -39,7 +40,7 @@ class AttendanceController extends Controller
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
             'department_id' => ['nullable', 'exists:departments,id'],
-            'photo' => ['required', 'string'],
+            'photo' => [$this->photoRule(), 'string'],
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
@@ -60,7 +61,7 @@ class AttendanceController extends Controller
         // 店舗指定が無い場合は主所属(users.department_id)へフォールバック。
         $departmentId = $this->resolvePunchDepartmentId($user, $request->input('department_id'));
 
-        $photoPath = $this->photoStorage->storeFromBase64($request->input('photo'), 'clock_in');
+        $photoPath = $this->storePhoto($request->input('photo'), 'clock_in');
 
         $attendance = Attendance::create([
             'user_id' => $user->id,
@@ -72,7 +73,7 @@ class AttendanceController extends Controller
         ]);
 
         if ($user->chatwork_room_id) {
-            SendChatworkNotification::dispatch($user, '出勤', $attendance, $photoPath);
+            SendChatworkNotification::dispatch($user, '出勤', $attendance, $photoPath ?? '');
         }
 
         return response()->json([
@@ -85,7 +86,7 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
-            'photo' => ['required', 'string'],
+            'photo' => [$this->photoRule(), 'string'],
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
@@ -113,7 +114,7 @@ class AttendanceController extends Controller
             $openBreak->update(['ended_at' => Carbon::now()]);
         }
 
-        $photoPath = $this->photoStorage->storeFromBase64($request->input('photo'), 'clock_out');
+        $photoPath = $this->storePhoto($request->input('photo'), 'clock_out');
 
         $attendance->update([
             'clock_out_at' => Carbon::now(),
@@ -122,7 +123,7 @@ class AttendanceController extends Controller
         ]);
 
         if ($user->chatwork_room_id) {
-            SendChatworkNotification::dispatch($user, '退勤', $attendance->fresh(), $photoPath);
+            SendChatworkNotification::dispatch($user, '退勤', $attendance->fresh(), $photoPath ?? '');
         }
 
         return response()->json([
@@ -135,7 +136,7 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
-            'photo' => ['required', 'string'],
+            'photo' => [$this->photoRule(), 'string'],
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
@@ -159,7 +160,7 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'すでに休憩中です'], 409);
         }
 
-        $photoPath = $this->photoStorage->storeFromBase64($request->input('photo'), 'break_start');
+        $photoPath = $this->storePhoto($request->input('photo'), 'break_start');
 
         $break = AttendanceBreak::create([
             'attendance_id'   => $attendance->id,
@@ -179,7 +180,7 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
-            'photo' => ['required', 'string'],
+            'photo' => [$this->photoRule(), 'string'],
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
@@ -198,7 +199,7 @@ class AttendanceController extends Controller
             return response()->json(['message' => '休憩中の記録が見つかりません'], 409);
         }
 
-        $photoPath = $this->photoStorage->storeFromBase64($request->input('photo'), 'break_end');
+        $photoPath = $this->storePhoto($request->input('photo'), 'break_end');
 
         $openBreak->update([
             'ended_at'       => Carbon::now(),
@@ -231,5 +232,35 @@ class AttendanceController extends Controller
             || $user->departments()->where('departments.id', $departmentId)->exists();
 
         return $belongs ? $departmentId : $user->department_id;
+    }
+
+    /**
+     * 打刻時に顔写真を使用する設定か。
+     * OFF(punch_use_photo != '1') の場合は写真なしで打刻できる。
+     */
+    private function usePhoto(): bool
+    {
+        return Setting::getValue('punch_use_photo', '0') === '1';
+    }
+
+    /**
+     * photo フィールドのバリデーションルール。
+     * 顔写真ONなら必須、OFFなら任意。
+     */
+    private function photoRule(): string
+    {
+        return $this->usePhoto() ? 'required' : 'nullable';
+    }
+
+    /**
+     * 写真Base64を保存しパスを返す。顔写真OFFまたは未送信時は null。
+     */
+    private function storePhoto(mixed $photo, string $type): ?string
+    {
+        if (! $this->usePhoto() || $photo === null || $photo === '') {
+            return null;
+        }
+
+        return $this->photoStorage->storeFromBase64($photo, $type);
     }
 }

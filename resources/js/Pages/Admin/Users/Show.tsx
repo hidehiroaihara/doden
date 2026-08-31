@@ -1425,7 +1425,7 @@ function DeductionItemsSection({ user, payroll, canWrite }: { user: User; payrol
                         <label className="inline-flex items-center gap-2 text-sm text-gray-700">
                             <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
                                 checked={auto}
-                                onChange={(e) => s.set('flat_tax_reduction_total', e.target.checked ? null : autoAmount)} />
+                                onChange={(e) => s.set('flat_tax_reduction_total', e.target.checked ? null : 0)} />
                             定額減税を自動計算する
                         </label>
                         <div>
