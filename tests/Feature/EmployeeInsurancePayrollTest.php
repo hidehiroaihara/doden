@@ -214,12 +214,14 @@ class EmployeeInsurancePayrollTest extends TestCase
                 'health_premium_mode' => 'table',
                 'nursing_premium_mode' => 'table',
                 'child_premium_mode' => 'manual',
+                'child_premium_employee' => 567,
                 'child_premium_employer' => 1234,
                 'pension_premium_mode' => 'table',
             ])->assertRedirect();
 
         $employee = $user->employeePayroll->fresh();
         $this->assertSame('manual', $employee->child_premium_mode);
+        $this->assertSame(567, $employee->child_premium_employee);
         $this->assertSame(1234, $employee->child_premium_employer);
     }
 

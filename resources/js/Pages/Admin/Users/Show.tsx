@@ -1527,7 +1527,7 @@ const EMPLOYMENT_LOST_REASONS: LabelMap = {
 const PREMIUM_ROWS: { key: 'health' | 'nursing' | 'child' | 'pension'; label: string; employerOnly?: boolean }[] = [
     { key: 'health', label: '健康保険料' },
     { key: 'nursing', label: '介護保険料' },
-    { key: 'child', label: '子ども・子育て支援金', employerOnly: true },
+    { key: 'child', label: '子ども・子育て支援金' },
     { key: 'pension', label: '厚生年金保険料' },
 ];
 const AUTO_PREMIUM_LABEL = '標準報酬月額を元に自動計算';

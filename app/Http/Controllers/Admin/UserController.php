@@ -398,7 +398,7 @@ class UserController extends Controller
             'nursing' => ($result['care_target'] || ($ep->nursing_premium_mode ?? 'table') === 'manual')
                 ? $build('nursing', 'nursing', $stdHealth)
                 : ['mode' => $ep->nursing_premium_mode ?? 'table', 'employee' => 0, 'employer' => 0],
-            'child' => $build('child', 'child_contribution', $stdHealth),
+            'child' => $build('child', 'child_support', $stdHealth),
             'pension' => $build('pension', 'pension', $stdPension),
         ];
 
