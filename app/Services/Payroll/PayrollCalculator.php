@@ -306,8 +306,8 @@ class PayrollCalculator
                     $socialTotal += $amount;
                     break;
 
-                case 'nursing_insurance':
-                    if ($employee->is_social_insurance_enrolled && $careTarget) {
+        case 'nursing_insurance':
+                    if ($employee->is_social_insurance_enrolled && ($careTarget || ($employee->nursing_premium_mode ?? 'table') === 'manual')) {
                         $amount = $this->employeePremium($employee, 'nursing', $rateSet, 'nursing', $stdHealth);
                     }
                     $socialTotal += $amount;

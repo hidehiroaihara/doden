@@ -200,6 +200,29 @@ class EmployeeInsurancePayrollTest extends TestCase
         $this->assertSame(8000, $employee->health_premium_employee);
     }
 
+    public function test_insurance_section_persists_child_premium_employer_manual(): void
+    {
+        $admin = $this->superAdmin();
+        $user = User::factory()->create();
+        EmployeePayroll::create(['user_id' => $user->id, 'employee_no' => 'E009']);
+
+        $this->actingAs($admin, 'admin')
+            ->put(route('admin.users.section', ['user' => $user->id, 'section' => 'insurance']), [
+                'is_short_time_worker' => false,
+                'is_miner' => false,
+                'accident_employee_type' => 'regular',
+                'health_premium_mode' => 'table',
+                'nursing_premium_mode' => 'table',
+                'child_premium_mode' => 'manual',
+                'child_premium_employer' => 1234,
+                'pension_premium_mode' => 'table',
+            ])->assertRedirect();
+
+        $employee = $user->employeePayroll->fresh();
+        $this->assertSame('manual', $employee->child_premium_mode);
+        $this->assertSame(1234, $employee->child_premium_employer);
+    }
+
     public function test_resident_tax_months_section_persists_year_schedule(): void
     {
         $admin = $this->superAdmin();

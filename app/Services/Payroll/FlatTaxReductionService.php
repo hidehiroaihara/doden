@@ -67,8 +67,21 @@ class FlatTaxReductionService
         return 1 + (int) ($employee->dependents_count ?? 0);
     }
 
-    /** 減税総額（＝対象人数 × マスタの1人あたり控除額）。 */
+    /**
+     * 減税総額。従業員情報で手動総額が設定されていればそれを優先し、
+     * 未設定（null）のときは対象人数 × マスタの1人あたり控除額で自動算出する。
+     */
     public function totalReduction(EmployeePayroll $employee, ?TaxMeasure $measure): int
+    {
+        if ($employee->flat_tax_reduction_total !== null) {
+            return max(0, (int) $employee->flat_tax_reduction_total);
+        }
+
+        return $this->autoTotalReduction($employee, $measure);
+    }
+
+    /** 自動算出の減税総額（＝対象人数 × マスタの1人あたり控除額）。参考表示にも使う。 */
+    public function autoTotalReduction(EmployeePayroll $employee, ?TaxMeasure $measure): int
     {
         return $this->targetCount($employee) * (int) ($measure?->per_person_amount ?? 0);
     }

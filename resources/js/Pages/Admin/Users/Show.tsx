@@ -1,4 +1,5 @@
 import AdminLayout from '@/Layouts/AdminLayout';
+import { dateOnlyPart, dateOnlyParts } from '@/lib/dateOnly';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
 import { Head, Link, router } from '@inertiajs/react';
 import { useMemo, useState, type ReactNode } from 'react';
@@ -29,6 +30,11 @@ interface PayrollData {
     daily_wage2: number;
     tax_table: string;
     dependents_count: number;
+    flat_tax_reduction_total: number | null;
+    flat_tax_reduction_auto_amount?: number;
+    flat_tax_reduction_target_count?: number;
+    flat_tax_reduction_per_person?: number;
+    flat_tax_reduction_measure_name?: string | null;
     is_widow: boolean;
     is_single_parent: boolean;
     disability_type: string;
@@ -840,8 +846,7 @@ const fieldLabel = 'mb-1 block text-xs font-medium text-gray-500';
 
 function fmtDate(v?: string | null): string {
     if (!v) return '—';
-    const [d] = v.split('T');
-    return d || '—';
+    return dateOnlyPart(v) || '—';
 }
 
 /** MF風: 2011年04月01日 (平成23年) */
@@ -854,10 +859,9 @@ function toWarekiLabel(y: number, m: number, d: number): string {
 
 function fmtDateWareki(v?: string | null): string {
     if (!v) return '';
-    const [datePart] = v.split('T')[0].split(' ');
-    const parts = datePart.split('-').map(Number);
-    const [y, m, d] = parts;
-    if (!y || !m || !d) return fmtDate(v);
+    const parts = dateOnlyParts(v);
+    if (!parts) return fmtDate(v);
+    const { y, m, d } = parts;
     const pad = (n: number) => String(n).padStart(2, '0');
     const w = toWarekiLabel(y, m, d);
     return w ? `${y}年${pad(m)}月${pad(d)}日 (${w})` : `${y}年${pad(m)}月${pad(d)}日`;
@@ -937,7 +941,7 @@ function BasicSection({ user, canWrite, genders }: { user: User; canWrite: boole
         last_name_kana: user.last_name_kana ?? '',
         first_name_kana: user.first_name_kana ?? '',
         gender: user.gender ?? '',
-        birth_date: user.birth_date?.split('T')[0] ?? '',
+        birth_date: dateOnlyPart(user.birth_date) || '',
         email: user.email ?? '',
         phone: user.phone ?? '',
         postal_code: user.postal_code ?? '',
@@ -1001,10 +1005,10 @@ function BasicSection({ user, canWrite, genders }: { user: User; canWrite: boole
 /* ============================ 在籍情報 ============================ */
 function EmploymentSection({ user, canWrite }: { user: User; canWrite: boolean }) {
     const s = useSection(user.id, 'employment', {
-        joined_at: user.joined_at?.split('T')[0] ?? '',
+        joined_at: dateOnlyPart(user.joined_at) || '',
         is_active: user.is_active,
         customer_no: user.customer_no ?? '',
-        retirement_date: user.retirement_date?.split('T')[0] ?? '',
+        retirement_date: dateOnlyPart(user.retirement_date) || '',
         retirement_type: user.retirement_type ?? '',
         retirement_reason: user.retirement_reason ?? '',
     });
@@ -1357,6 +1361,57 @@ function IncomeTaxSection({ user, payroll, canWrite, options }: { user: User; pa
     );
 }
 
+/* ============================ 控除項目（定額減税） ============================ */
+function DeductionItemsSection({ user, payroll, canWrite }: { user: User; payroll: PayrollData; canWrite: boolean }) {
+    const s = useSection(user.id, 'deduction_items', {
+        flat_tax_reduction_total: payroll.flat_tax_reduction_total,
+    });
+    const auto = s.data.flat_tax_reduction_total === null;
+    const autoAmount = payroll.flat_tax_reduction_auto_amount ?? 0;
+    const targetCount = payroll.flat_tax_reduction_target_count ?? 0;
+    const perPerson = payroll.flat_tax_reduction_per_person ?? 0;
+    const autoNote = perPerson > 0
+        ? `自動計算: ${fmtYen(autoAmount)}（本人＋扶養${Math.max(0, targetCount - 1)}人 × ${fmtYen(perPerson)}）`
+        : '自動計算: 有効な税制措置（定額減税）がないため 0 円です';
+
+    return (
+        <SectionShell title="控除項目" icon="fa-solid fa-hand-holding-dollar" canWrite={canWrite} editing={s.editing}
+            onEdit={() => s.setEditing(true)} onCancel={s.cancel} onSave={() => s.save()} processing={s.processing}>
+            {s.editing ? (
+                <div className="space-y-4">
+                    <div className="max-w-md space-y-2">
+                        <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                            <input type="checkbox" className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                checked={auto}
+                                onChange={(e) => s.set('flat_tax_reduction_total', e.target.checked ? null : autoAmount)} />
+                            定額減税を自動計算する
+                        </label>
+                        <div>
+                            <label className={fieldLabel}>定額減税 総額</label>
+                            <div className="relative">
+                                <input type="number" min="0" disabled={auto}
+                                    className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-400`}
+                                    value={numInputDisplay(s.data.flat_tax_reduction_total)}
+                                    onChange={(e) => s.set('flat_tax_reduction_total', e.target.value === '' ? 0 : Number(e.target.value))} />
+                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500">{autoNote}</p>
+                    </div>
+                    <p className="text-xs text-gray-400">
+                        実際の減額適用には <Link href={route('admin.payroll.tax-measures.index')} className="text-teal-600 hover:underline">給与設定 → 税制措置マスタ</Link> の有効期間内での給与計算が必要です。控除済累計は <Link href={route('admin.payroll.reports.flat-tax')} className="text-teal-600 hover:underline">各人別控除事績簿</Link> で確認できます。
+                    </p>
+                </div>
+            ) : (
+                <dl className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+                    <Row label="定額減税（所得税）" value={auto ? `自動計算（${fmtYen(autoAmount)}）` : fmtYen(s.data.flat_tax_reduction_total ?? 0)} />
+                    <Row label="算定方法" value={auto ? '自動（扶養数 × 税制措置マスタ単価）' : '手動（総額を固定）'} />
+                </dl>
+            )}
+        </SectionShell>
+    );
+}
+
 /* ============================ 扶養情報 ============================ */
 function emptyDependent(): EmployeeDependent {
     return {
@@ -1531,17 +1586,17 @@ function InsuranceQualificationSection({
     const build = (p: PayrollData): InsForm => ({
         is_short_time_worker: !!p.is_short_time_worker,
         is_miner: !!p.is_miner,
-        health_qualified_at: p.health_qualified_at?.split('T')[0] ?? null,
-        health_lost_at: p.health_lost_at?.split('T')[0] ?? null,
+        health_qualified_at: dateOnlyPart(p.health_qualified_at) || null,
+        health_lost_at: dateOnlyPart(p.health_lost_at) || null,
         health_lost_reason: p.health_lost_reason ?? null,
         health_insured_number: p.health_insured_number ?? null,
-        pension_qualified_at: p.pension_qualified_at?.split('T')[0] ?? null,
-        pension_lost_at: p.pension_lost_at?.split('T')[0] ?? null,
+        pension_qualified_at: dateOnlyPart(p.pension_qualified_at) || null,
+        pension_lost_at: dateOnlyPart(p.pension_lost_at) || null,
         pension_lost_reason: p.pension_lost_reason ?? null,
         basic_pension_number: p.basic_pension_number ?? null,
         accident_employee_type: p.accident_employee_type ?? 'regular',
-        employment_qualified_at: p.employment_qualified_at?.split('T')[0] ?? null,
-        employment_lost_at: p.employment_lost_at?.split('T')[0] ?? null,
+        employment_qualified_at: dateOnlyPart(p.employment_qualified_at) || null,
+        employment_lost_at: dateOnlyPart(p.employment_lost_at) || null,
         employment_lost_reason: p.employment_lost_reason ?? null,
         employment_insured_number: p.employment_insured_number ?? null,
         health_premium_mode: p.health_premium_mode ?? 'table',
@@ -1639,17 +1694,20 @@ function InsuranceQualificationSection({
         const amountKey = `${key}_premium_${side}` as keyof InsForm;
         const mode = (data[modeKey] as string) ?? 'table';
         const autoVal = preview.items[key]?.[side] ?? 0;
-        const disabledCell = side === 'employee' && employerOnly;
+        const isEmployerSide = side === 'employer';
+        const employeeNotApplicable = side === 'employee' && !!employerOnly;
+        // 手入力: 会社欄は事業主負担のみの险种（子ども・子育て支援金）も含め常に入力可。本人欄は該当しない行・介護非該当は不可。
+        const canManualInput = mode === 'manual' && editing && (isEmployerSide || (!employeeNotApplicable && !inactive));
 
         // 閲覧時・額表（自動）: MF と同様に自動計算の文言を表示
         if (!editing && mode === 'table') {
-            if (inactive || disabledCell) {
+            if (inactive || employeeNotApplicable) {
                 return <span className="text-sm text-gray-400">{AUTO_PREMIUM_LABEL}</span>;
             }
             return <span className="text-sm text-gray-600">{AUTO_PREMIUM_LABEL}</span>;
         }
 
-        if (mode === 'manual' && editing && !disabledCell) {
+        if (canManualInput) {
             return (
                 <div className="relative max-w-xs">
                     <input type="number" min="0" className={insFieldClass}
@@ -1661,10 +1719,10 @@ function InsuranceQualificationSection({
         }
 
         const shown = mode === 'manual' ? (Number(data[amountKey]) || 0) : autoVal;
-        if (disabledCell && !editing) {
+        if (employeeNotApplicable && !editing) {
             return <span className="text-sm text-gray-600">{AUTO_PREMIUM_LABEL}</span>;
         }
-        return <span className={disabledCell ? 'text-gray-300' : 'text-gray-800'}>{disabledCell ? '—' : yen(shown)}</span>;
+        return <span className={employeeNotApplicable ? 'text-gray-300' : 'text-gray-800'}>{employeeNotApplicable ? '—' : yen(shown)}</span>;
     };
 
     return (
@@ -1728,9 +1786,10 @@ function InsuranceQualificationSection({
                                 const modeKey = `${row.key}_premium_mode` as keyof InsForm;
                                 const mode = (data[modeKey] as string) ?? 'table';
                                 const inactive = row.key === 'nursing' && !preview.care_target;
+                                const dimRow = inactive && mode === 'table';
                                 return (
-                                    <tr key={row.key} className={`border-b border-gray-100 last:border-b-0 ${inactive ? 'opacity-60' : ''}`}>
-                                        <th className={`${mfLabelCell} border-r border-gray-100 font-normal`}>{row.label}</th>
+                                    <tr key={row.key} className={`border-b border-gray-100 last:border-b-0 ${dimRow ? 'bg-gray-50/60' : ''}`}>
+                                        <th className={`${mfLabelCell} border-r border-gray-100 font-normal ${dimRow ? 'text-gray-400' : ''}`}>{row.label}</th>
                                         {editing && (
                                             <td className="border-r border-gray-100 px-5 py-3 align-middle">
                                                 <select className={`${insFieldClass} max-w-28`}
@@ -1748,6 +1807,11 @@ function InsuranceQualificationSection({
                         </tbody>
                     </table>
                 </MfTableWrap>
+                {!preview.care_target && (
+                    <p className="mt-2 text-xs text-gray-500">
+                        介護保険料は、生年月日から判定した第2号被保険者の対象外（満40歳未満または65歳以上）のため、額表では0円です。手入力に切り替えると金額を指定できます。
+                    </p>
+                )}
                 {editing && (
                     <p className="mt-1.5 text-[11px] text-gray-400">額表: 標準報酬月額と事業所の保険料率から自動計算します。手入力に切り替えると金額を直接指定できます。</p>
                 )}
@@ -1791,7 +1855,7 @@ function InsuranceQualificationSection({
 /* ============================ 標準報酬月額 履歴（MF: 適用開始月 + 保険料額表から選択） ============================ */
 function formatAppliedMonth(dateStr: string): string {
     if (!dateStr) return '';
-    const [y, m] = dateStr.split('T')[0].split('-');
+    const [y, m] = dateOnlyPart(dateStr).split('-');
     return `${y}-${m}`;
 }
 
@@ -2294,6 +2358,9 @@ function SalaryTab({
                     })()}
                 </div>
             </div>
+
+            {/* 控除項目（定額減税） */}
+            <DeductionItemsSection user={user} payroll={payroll} canWrite={canWritePayroll} />
 
             {/* 通勤手当（複数ルート） */}
             <div className="rounded-2xl bg-white shadow-sm ring-1 ring-gray-100">

@@ -18,8 +18,10 @@ use App\Models\PayItemMaster;
 use App\Models\ResidentTaxMunicipality;
 use App\Models\Setting;
 use App\Models\StandardRewardGrade;
+use App\Models\TaxMeasure;
 use App\Models\User;
 use App\Models\UserStatusHistory;
+use App\Services\Payroll\FlatTaxReductionService;
 use App\Support\LaborInsuranceRates;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -263,13 +265,25 @@ class UserController extends Controller
                 'full_name' => $user->full_name,
                 'employment_status' => $user->employment_status,
                 'my_number' => $user->my_number, // 復号済み
+                'birth_date' => $user->birth_date?->toDateString(),
+                'joined_at' => $user->joined_at?->toDateString(),
+                'retirement_date' => $user->retirement_date?->toDateString(),
             ]),
             'payroll' => $ep ? array_merge($ep->toArray(), [
                 'employment_industry_type' => $ep->businessLocation?->employment_industry_type,
                 'accident_industry_code' => $ep->businessLocation?->accident_industry_code,
-            ]) : $this->defaultPayroll(),
+                'health_qualified_at' => $ep->health_qualified_at?->toDateString(),
+                'health_lost_at' => $ep->health_lost_at?->toDateString(),
+                'pension_qualified_at' => $ep->pension_qualified_at?->toDateString(),
+                'pension_lost_at' => $ep->pension_lost_at?->toDateString(),
+                'employment_qualified_at' => $ep->employment_qualified_at?->toDateString(),
+                'employment_lost_at' => $ep->employment_lost_at?->toDateString(),
+            ], $this->flatTaxReference($ep)) : $this->defaultPayroll(),
             'dependents' => $user->dependents->map(function ($d) {
-                return array_merge($d->toArray(), ['my_number' => $d->my_number]);
+                return array_merge($d->toArray(), [
+                    'my_number' => $d->my_number,
+                    'birth_date' => $d->birth_date?->toDateString(),
+                ]);
             }),
             'leaves' => $user->leaves->map(fn ($l) => [
                 'id' => $l->id,
@@ -301,6 +315,30 @@ class UserController extends Controller
             'socialInsurancePreview' => $this->socialInsurancePreview($user, $ep),
             'options' => $this->detailOptions(),
         ]);
+    }
+
+    /**
+     * 定額減税の参考値。手動総額が未設定のときに UI へ表示する自動算出額と、その内訳（対象人数・単価）を返す。
+     * 最新の有効な税制措置（定額減税）を基準に算出する。制度が無ければ 0。
+     */
+    private function flatTaxReference(EmployeePayroll $ep): array
+    {
+        $service = new FlatTaxReductionService();
+
+        $measure = TaxMeasure::query()
+            ->where('type', TaxMeasure::TYPE_FLAT_TAX)
+            ->where('is_active', true)
+            ->orderByDesc('target_year')
+            ->first();
+
+        $targetCount = $service->targetCount($ep);
+
+        return [
+            'flat_tax_reduction_auto_amount' => $service->autoTotalReduction($ep, $measure),
+            'flat_tax_reduction_target_count' => $targetCount,
+            'flat_tax_reduction_per_person' => (int) ($measure?->per_person_amount ?? 0),
+            'flat_tax_reduction_measure_name' => $measure?->name,
+        ];
     }
 
     /**
@@ -357,7 +395,7 @@ class UserController extends Controller
 
         $result['items'] = [
             'health' => $build('health', 'health', $stdHealth),
-            'nursing' => $result['care_target']
+            'nursing' => ($result['care_target'] || ($ep->nursing_premium_mode ?? 'table') === 'manual')
                 ? $build('nursing', 'nursing', $stdHealth)
                 : ['mode' => $ep->nursing_premium_mode ?? 'table', 'employee' => 0, 'employer' => 0],
             'child' => $build('child', 'child_contribution', $stdHealth),
@@ -384,6 +422,9 @@ class UserController extends Controller
                 break;
             case 'income_tax':
                 $this->updateIncomeTax($request, $user);
+                break;
+            case 'deduction_items':
+                $this->updateDeductionItems($request, $user);
                 break;
             case 'resident_tax':
                 $this->updateResidentTax($request, $user);
@@ -538,6 +579,19 @@ class UserController extends Controller
             'is_disaster' => ['boolean'],
             'is_foreigner' => ['boolean'],
             'residency_type' => ['required', 'in:resident,non_resident'],
+        ]);
+
+        $this->savePayroll($user, $data);
+    }
+
+    /**
+     * 控除項目（定額減税の総額の手動上書き）。
+     * flat_tax_reduction_total が null のときは自動計算（対象人数 × マスタ単価）。
+     */
+    private function updateDeductionItems(Request $request, User $user): void
+    {
+        $data = $request->validate([
+            'flat_tax_reduction_total' => ['nullable', 'integer', 'min:0', 'max:99999999'],
         ]);
 
         $this->savePayroll($user, $data);
@@ -1127,6 +1181,11 @@ class UserController extends Controller
             'daily_wage2' => 0,
             'tax_table' => 'kou',
             'dependents_count' => 0,
+            'flat_tax_reduction_total' => null,
+            'flat_tax_reduction_auto_amount' => 0,
+            'flat_tax_reduction_target_count' => 0,
+            'flat_tax_reduction_per_person' => 0,
+            'flat_tax_reduction_measure_name' => null,
             'is_widow' => false,
             'is_single_parent' => false,
             'disability_type' => 'none',

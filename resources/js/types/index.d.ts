@@ -84,6 +84,7 @@ export interface EmployeePayroll {
     daily_wage2: number;
     tax_table: string;
     dependents_count: number;
+    flat_tax_reduction_total: number | null;
     is_widow: boolean;
     is_single_parent: boolean;
     disability_type: string;
