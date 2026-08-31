@@ -1743,9 +1743,9 @@ function InsuranceQualificationSection({
         const amountKey = `${key}_premium_${side}` as keyof InsForm;
         const mode = (data[modeKey] as string) ?? 'table';
         const autoVal = preview.items[key]?.[side] ?? 0;
-        const isEmployerSide = side === 'employer';
         const employeeNotApplicable = side === 'employee' && !!employerOnly;
-        const canManualInput = mode === 'manual' && isEditing && (isEmployerSide || (!employeeNotApplicable && !inactive));
+        // 手入力モードでは inactive（介護非該当）でも MF と同様に本人・会社とも入力可。額表時のみ inactive を反映。
+        const canManualInput = mode === 'manual' && isEditing && !employeeNotApplicable;
 
         if (!isEditing && mode === 'table') {
             if (inactive || employeeNotApplicable) {
