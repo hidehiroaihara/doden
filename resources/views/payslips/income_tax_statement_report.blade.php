@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
+    @include('payslips.partials.robots-noindex')
     <title>所得税徴収高計算書</title>
     <style>
         @include('payslips.partials.pdf-fonts')

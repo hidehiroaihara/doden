@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
     <meta charset="utf-8">
+    @include('payslips.partials.robots-noindex')
     <style>
         @include('payslips.partials.pdf-fonts')
         body { margin: 0; padding: 28px; color: #1f2937; font-size: 11px; }
