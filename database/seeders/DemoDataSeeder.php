@@ -227,6 +227,7 @@ class DemoDataSeeder extends Seeder
             ['nursing', 7.95, 7.95],
             ['pension', 91.50, 91.50],
             ['child_contribution', 0.00, 3.60],
+            ['child_support', 1.15, 1.15],
             ['employment', 6.00, 9.50],
             ['accident', 0.00, 3.00],
         ];

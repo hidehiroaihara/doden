@@ -817,9 +817,11 @@ class PayrollSettingController extends Controller
             // 厚生年金（全国一律 総額183.00‰）・子ども子育て拠出金（事業主のみ 3.60‰）
             $apply('pension', 91.500, 91.500);
             $apply('child_contribution', 0.000, 3.600);
+            // 子ども・子育て支援金（2026年4月〜。従業員・会社ともに 1.15‰）
+            $apply('child_support', 1.150, 1.150);
         });
 
-        return back()->with('success', "協会けんぽ（{$location->prefecture}・{$date}）の料率を反映しました。厚生年金・拠出金の標準値もセットしました。内容をご確認ください。");
+        return back()->with('success', "協会けんぽ（{$location->prefecture}・{$date}）の料率を反映しました。厚生年金・拠出金・子ども子育て支援金の標準値もセットしました。内容をご確認ください。");
     }
 
     /**

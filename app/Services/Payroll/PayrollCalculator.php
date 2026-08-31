@@ -300,28 +300,30 @@ class PayrollCalculator
 
             switch ($m->code) {
                 case 'health_insurance':
-                    if ($employee->is_social_insurance_enrolled) {
-                        $amount = $this->employeePremium($employee, 'health', $rateSet, 'health', $stdHealth);
-                    }
+                    $amount = $this->premiumWithEnrollment($employee, 'health', $rateSet, 'health', $stdHealth, (bool) $employee->is_social_insurance_enrolled);
                     $socialTotal += $amount;
                     break;
 
         case 'nursing_insurance':
-                    if ($employee->is_social_insurance_enrolled && ($careTarget || ($employee->nursing_premium_mode ?? 'table') === 'manual')) {
-                        $amount = $this->employeePremium($employee, 'nursing', $rateSet, 'nursing', $stdHealth);
+                    // 手入力(manual)は加入判定・介護該当に関わらず入力額を反映（MF準拠。未加入者は0円運用）。
+                    // 額表(table)は加入中かつ介護該当（満40〜64歳）のときのみ料率計算。
+                    if (($employee->nursing_premium_mode ?? 'table') === 'manual') {
+                        $amount = (int) ($employee->nursing_premium_employee ?? 0);
+                    } elseif ($employee->is_social_insurance_enrolled && $careTarget) {
+                        $amount = $this->insuranceEmployee($rateSet, 'nursing', $stdHealth);
                     }
                     $socialTotal += $amount;
                     break;
 
                 case 'child_contribution':
-                    // 子ども・子育て拠出金は事業主全額負担。従業員控除は0。
-                    $amount = 0;
+                    // 子ども・子育て支援金（2026年4月〜）。従業員負担分を給与から控除する（MF 2026/4準拠）。
+                    // 手入力は加入判定に関わらず反映、額表は加入中のみ 標準報酬(健保) × 支援金率(child_support)。
+                    $amount = $this->premiumWithEnrollment($employee, 'child', $rateSet, 'child_support', $stdHealth, (bool) $employee->is_social_insurance_enrolled);
+                    $socialTotal += $amount;
                     break;
 
                 case 'pension_insurance':
-                    if ($employee->is_social_insurance_enrolled) {
-                        $amount = $this->employeePremium($employee, 'pension', $rateSet, 'pension', $stdPension);
-                    }
+                    $amount = $this->premiumWithEnrollment($employee, 'pension', $rateSet, 'pension', $stdPension, (bool) $employee->is_social_insurance_enrolled);
                     $socialTotal += $amount;
                     break;
 
@@ -364,12 +366,8 @@ class PayrollCalculator
 
             // 給与計算画面では0円の有効控除も行として保持（後から手入力するため）。
             // 給与明細PDFでは PayslipPdfService 側で show_zero に従い非表示にする。
-            // ただし子ども・子育て拠出金は事業主全額負担のため従業員控除には表示しない。
-            // 介護保険は介護保険料の対象者(満40〜64歳)のときのみ表示する。
-            if ($m->code === 'child_contribution') {
-                continue;
-            }
-            if ($m->code === 'nursing_insurance' && ! $careTarget) {
+            // 介護保険は介護保険料の対象者(満40〜64歳)のときのみ表示する。ただし手入力額があれば表示する。
+            if ($m->code === 'nursing_insurance' && ! $careTarget && ($employee->nursing_premium_mode ?? 'table') !== 'manual') {
                 continue;
             }
 
@@ -672,6 +670,22 @@ class PayrollCalculator
         }
 
         return $this->insuranceEmployee($rateSet, $kind, $standardReward);
+    }
+
+    /**
+     * 加入判定を加味した社会保険料（本人負担）を返す。
+     *
+     * MFクラウド給与に合わせ、手入力(manual)モードのときは加入判定に関わらず入力額をそのまま反映する
+     * （未加入者は手入力額を0円にする運用）。額表(table)モードのときは加入中のみ料率表から自動計算する。
+     * $key は health/nursing/pension/child、$kind は料率マスタの種別。
+     */
+    private function premiumWithEnrollment(EmployeePayroll $employee, string $key, ?InsuranceRateSet $rateSet, string $kind, int $standardReward, bool $enrolled): int
+    {
+        if (($employee->{"{$key}_premium_mode"} ?? 'table') === 'manual') {
+            return (int) ($employee->{"{$key}_premium_employee"} ?? 0);
+        }
+
+        return $enrolled ? $this->insuranceEmployee($rateSet, $kind, $standardReward) : 0;
     }
 
     /**

@@ -35,6 +35,7 @@ class WageLedgerService
     private const SOCIAL_DEDUCTION_CODES = [
         'health_insurance',
         'nursing_insurance',
+        'child_contribution',
         'pension_insurance',
         'pension_fund',
         'employment_insurance',
