@@ -20,6 +20,7 @@ use App\Models\PayItemMaster;
 use App\Models\PensionFund;
 use App\Models\ResidentTaxMunicipality;
 use App\Models\Setting;
+use App\Services\JapaneseHolidayImporter;
 use App\Support\LaborInsuranceRates;
 use App\Support\PayrollMasterSync;
 use Illuminate\Http\Request;
@@ -264,11 +265,23 @@ class PayrollSettingController extends Controller
                 'monthly_avg_work_days' => $fy->monthly_avg_work_days,
                 'monthly_avg_work_hours' => $fy->monthly_avg_work_hours,
                 'holidays' => $fy->holidays->map(fn ($h) => ['dow' => $h->dow, 'type' => $h->type])->values(),
-                'custom_holidays' => $fy->customHolidays->map(fn ($c) => [
-                    'id' => $c->id,
-                    'date' => $c->date instanceof \DateTimeInterface ? $c->date->format('Y-m-d') : (string) $c->date,
-                    'label' => $c->label,
-                ])->values(),
+                // 独自休日設定エディタ用: 手入力分のみ（内閣府取込分は読み取り専用のため除外）
+                'custom_holidays' => $fy->customHolidays
+                    ->where('source', FiscalYearCustomHoliday::SOURCE_MANUAL)
+                    ->map(fn ($c) => [
+                        'id' => $c->id,
+                        'date' => $c->date instanceof \DateTimeInterface ? $c->date->format('Y-m-d') : (string) $c->date,
+                        'label' => $c->label,
+                    ])->values(),
+                // 祝日一覧モーダル用: 手入力+内閣府取込を日付順で全件
+                'holiday_list' => $fy->customHolidays
+                    ->sortBy(fn ($c) => $c->date instanceof \DateTimeInterface ? $c->date->format('Y-m-d') : (string) $c->date)
+                    ->map(fn ($c) => [
+                        'date' => $c->date instanceof \DateTimeInterface ? $c->date->format('Y-m-d') : (string) $c->date,
+                        'label' => $c->label,
+                        'source' => $c->source,
+                    ])->values(),
+                'holidays_imported_at' => $fy->holidays_imported_at?->toIso8601String(),
             ] : null,
             'monthlyDayTable' => $fy ? $fy->monthlyDayTable() : null,
             'payMonths' => $fy ? $this->payMonths($fy) : [],
@@ -325,10 +338,11 @@ class PayrollSettingController extends Controller
     }
 
     /** 直近年度を複製して新しい年度を作成（休日設定・所定労働をコピー）。 */
-    public function storeFiscalYear(Request $request)
+    public function storeFiscalYear(Request $request, JapaneseHolidayImporter $importer)
     {
         $data = $request->validate([
             'year' => ['required', 'integer', 'min:2000', 'max:2100', 'unique:fiscal_years,year'],
+            'import_holidays' => ['nullable', 'boolean'],
         ]);
 
         $source = FiscalYear::with('holidays')->orderByDesc('year')->first();
@@ -352,6 +366,20 @@ class PayrollSettingController extends Controller
                 }
             }
         });
+
+        // 任意: 作成年度の祝日を内閣府CSVから自動取込（失敗しても年度作成は成立させる）
+        if ($request->boolean('import_holidays')) {
+            try {
+                $count = $importer->importYear((int) $data['year']);
+                $suffix = $count > 0
+                    ? "（祝日 {$count} 件を取り込みました）"
+                    : '（祝日データは未掲載のため取り込めませんでした。例年2月頃に再取込してください）';
+
+                return back()->with('success', "{$data['year']}年度を作成しました{$suffix}");
+            } catch (\Throwable $e) {
+                return back()->with('success', "{$data['year']}年度を作成しました（祝日の自動取込に失敗: {$e->getMessage()}）");
+            }
+        }
 
         return back()->with('success', "{$data['year']}年度を作成しました");
     }
@@ -385,17 +413,37 @@ class PayrollSettingController extends Controller
                 FiscalYearHoliday::create(['fiscal_year_id' => $fiscalYear->id, 'dow' => $h['dow'], 'type' => $h['type']]);
             }
 
-            $fiscalYear->customHolidays()->delete();
+            // 手入力分のみ全置換（内閣府取込分 source='cabinet_office' は保持）
+            $fiscalYear->customHolidays()
+                ->where('source', FiscalYearCustomHoliday::SOURCE_MANUAL)
+                ->delete();
             foreach ($data['custom_holidays'] ?? [] as $c) {
                 FiscalYearCustomHoliday::create([
                     'fiscal_year_id' => $fiscalYear->id,
                     'date' => $c['date'],
                     'label' => $c['label'] ?? null,
+                    'source' => FiscalYearCustomHoliday::SOURCE_MANUAL,
                 ]);
             }
         });
 
         return back()->with('success', '年度設定を保存しました');
+    }
+
+    /** 内閣府CSVから対象年度の祝日を取り込む（内閣府由来のみ入替、手入力は保持）。 */
+    public function importFiscalYearHolidays(FiscalYear $fiscalYear, JapaneseHolidayImporter $importer)
+    {
+        try {
+            $count = $importer->importYear($fiscalYear->year);
+        } catch (\Throwable $e) {
+            return back()->with('error', '祝日の取り込みに失敗しました: '.$e->getMessage());
+        }
+
+        if ($count === 0) {
+            return back()->with('error', "{$fiscalYear->year}年の祝日データが内閣府CSVに見つかりませんでした。翌年分は例年2月頃に掲載されます。");
+        }
+
+        return back()->with('success', "{$fiscalYear->year}年の祝日を {$count} 件取り込みました");
     }
 
     // ---- 明細設定(se17) ---------------------------------------------------

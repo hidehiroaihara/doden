@@ -194,6 +194,8 @@ interface FiscalYearDetail {
     monthly_avg_work_hours: string | null;
     holidays: { dow: number; type: string }[];
     custom_holidays: { id: number; date: string; label: string | null }[];
+    holiday_list: { date: string; label: string | null; source: string }[];
+    holidays_imported_at: string | null;
 }
 
 interface MonthlyDayTable {
@@ -645,12 +647,20 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                 </div>
             </div>
 
-            {/* 休日区分（給与計算の勤怠項目） */}
+            {/* 休日区分（年度設定未作成時のフォールバック） */}
             <div className={cardSection}>
-                {head('fa-umbrella-beach', 'bg-rose-100 text-rose-600', '休日区分の設定', '給与計算の勤怠項目「出勤日数（所定休日/法定休日）」「所定/法定休日労働時間」の判定に使う曜日です。')}
-                <div className="rounded-lg bg-rose-50/60 px-4 py-2.5 text-xs text-rose-700">
-                    <i className="fa-solid fa-circle-info mr-1.5" />
-                    既定は<strong>法定休日=日曜 / 所定休日=土曜</strong>。ここで指定した曜日の出勤は、平日の集計から分けて休日区分として集計されます。
+                {head('fa-umbrella-beach', 'bg-rose-100 text-rose-600', '休日区分の設定', '年度設定が未作成の年に限り、休日判定のフォールバックとして使用します。')}
+                <div className="space-y-2 rounded-lg bg-rose-50/60 px-4 py-3 text-xs text-rose-800">
+                    <p>
+                        <i className="fa-solid fa-circle-info mr-1.5" />
+                        打刻の休日区分（平日 / 所定休日 / 法定休日）、休日労働時間の集計、<strong>当月の所定労働日数・時間</strong>の算出は、いずれも<strong>「年度設定」タブの休日設定を優先</strong>して参照します。
+                    </p>
+                    <p>
+                        <strong>ここ（勤怠設定）が使われるのは、対象年の年度設定が未作成の場合のみ</strong>です。その年の休日判定フォールバックとして、この曜日指定が参照されます。
+                    </p>
+                    <p className="text-rose-600">
+                        年度を新規作成すると、この設定は年度側へコピーされます。休日ルールを変更する場合は<strong>年度設定タブ</strong>を変更してください（勤怠設定と年度設定で内容が食い違わないようご注意ください）。
+                    </p>
                 </div>
                 <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2">
                     <div>
@@ -702,6 +712,22 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
 /* ============================ 年度設定タブ(se15) ============================ */
 const FY_DOW_LABELS = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '祝日'];
 const MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+const FY_WEEKDAY = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** 'YYYY-MM-DD' を 'YYYY-MM-DD（曜）' に整形。 */
+const fmtHolidayDate = (d: string): string => {
+    const dt = new Date(`${d}T00:00:00`);
+    return Number.isNaN(dt.getTime()) ? d : `${d}（${FY_WEEKDAY[dt.getDay()]}）`;
+};
+
+/** ISO8601 を 'YYYY-MM-DD HH:mm' に整形。 */
+const fmtImportedAt = (iso: string | null): string | null => {
+    if (!iso) return null;
+    const dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return null;
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())} ${p(dt.getHours())}:${p(dt.getMinutes())}`;
+};
 
 function FiscalYearTab({ data, options, canWrite }: {
     data: FiscalYearData;
@@ -716,6 +742,8 @@ function FiscalYearTab({ data, options, canWrite }: {
     const [avgDays, setAvgDays] = useState('');
     const [avgHours, setAvgHours] = useState('');
     const [processing, setProcessing] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const [showHolidayList, setShowHolidayList] = useState(false);
 
     useEffect(() => {
         const map: Record<number, string> = {};
@@ -734,7 +762,15 @@ function FiscalYearTab({ data, options, canWrite }: {
     const createNext = () => {
         const next = data.years.length ? Math.max(...data.years) + 1 : new Date().getFullYear();
         if (!window.confirm(`${next}年度を作成しますか？（直近年度の設定を複製します）`)) return;
-        router.post(route('admin.payroll.settings.fiscal-years.store'), { year: next }, { preserveScroll: true });
+        const withHolidays = window.confirm(`${next}年の祝日を内閣府から自動で取り込みますか？\n\n・翌年分は例年2月頃に掲載されます（未掲載の年は取り込めません）\n・後から「祝日を取り込む」ボタンでも実行できます`);
+        router.post(route('admin.payroll.settings.fiscal-years.store'), { year: next, import_holidays: withHolidays }, { preserveScroll: true });
+    };
+
+    const importHolidays = () => {
+        if (!fy) return;
+        if (!window.confirm(`${fy.year}年の祝日を内閣府CSVから取り込みますか？\n\n既存の取込分は最新データで置き換わります（手入力の独自休日は保持されます）。`)) return;
+        setImporting(true);
+        router.post(route('admin.payroll.settings.fiscal-years.import-holidays', fy.id), {}, { preserveScroll: true, onFinish: () => setImporting(false) });
     };
 
     const save = () => {
@@ -791,7 +827,34 @@ function FiscalYearTab({ data, options, canWrite }: {
                                 </div>
                             ))}
                         </div>
-                        <p className="mt-2 text-xs text-gray-400">設定した休日をもとに、年間・月別の所定労働日数が自動算出されます。</p>
+                        <p className="mt-2 text-xs text-gray-400">設定した休日をもとに、年間・月別の所定労働日数が自動算出されます。打刻の休日区分・休日労働時間・当月所定労働日数/時間の算出も、この設定を優先して参照します。</p>
+                    </div>
+
+                    {/* 祝日（内閣府CSV取込） */}
+                    <div className={`${cardClass} p-5`}>
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                            <h3 className="text-sm font-bold text-gray-800"><i className="fa-solid fa-flag mr-2 text-teal-600" />祝日データ（内閣府）</h3>
+                            <div className="flex items-center gap-2">
+                                <button type="button" onClick={() => setShowHolidayList(true)}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+                                    <i className="fa-solid fa-list" />{fy.year}年の祝日（{(fy.holiday_list ?? []).length}件）
+                                </button>
+                                {canWrite && (
+                                    <button type="button" onClick={importHolidays} disabled={importing}
+                                        className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-100 disabled:opacity-50">
+                                        <i className={`fa-solid ${importing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-down'}`} />{fy.year}年の祝日を取り込む
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-500">
+                            {fy.holidays_imported_at
+                                ? <>最終取込: <span className="font-semibold text-gray-700">{fmtImportedAt(fy.holidays_imported_at)}</span></>
+                                : <span className="text-amber-600">まだ取り込まれていません。「{fy.year}年の祝日を取り込む」を実行してください。</span>}
+                        </p>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                            出典: 祝日データ <a href="https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html" target="_blank" rel="noopener noreferrer" className="text-teal-600 underline">内閣府</a>（CC BY）。翌年分は例年2月頃に確定・掲載されます。取り込んだ祝日は下の独自休日と合わせて休日として扱われます。
+                        </p>
                     </div>
 
                     {/* 独自休日設定 */}
@@ -805,6 +868,7 @@ function FiscalYearTab({ data, options, canWrite }: {
                                 </button>
                             )}
                         </div>
+                        <p className="mb-3 text-[11px] text-gray-400">創立記念日など、会社独自の休日を手入力します（内閣府から取り込んだ祝日はここには表示されず、上の「祝日データ」で管理されます）。</p>
                         {customHolidays.length === 0 ? (
                             <p className="text-xs text-gray-400">独自休日情報がありません。</p>
                         ) : (
@@ -919,6 +983,49 @@ function FiscalYearTab({ data, options, canWrite }: {
                                 className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
                                 <i className="fa-solid fa-floppy-disk" />年度設定を保存
                             </button>
+                        </div>
+                    )}
+
+                    {/* 祝日一覧モーダル */}
+                    {showHolidayList && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setShowHolidayList(false)}>
+                            <div className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-white shadow-xl" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                                    <h3 className="text-sm font-bold text-gray-800">{fy.year}年 祝日・休日一覧（{(fy.holiday_list ?? []).length}件）</h3>
+                                    <button type="button" onClick={() => setShowHolidayList(false)} className="rounded-lg px-2 py-1 text-gray-400 hover:bg-gray-100"><i className="fa-solid fa-xmark" /></button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto px-5 py-3">
+                                    {(fy.holiday_list ?? []).length === 0 ? (
+                                        <p className="py-8 text-center text-sm text-gray-400">祝日が登録されていません。<br />「{fy.year}年の祝日を取り込む」を実行してください。</p>
+                                    ) : (
+                                        <table className="min-w-full text-sm">
+                                            <thead>
+                                                <tr className="border-b border-gray-100 text-left text-xs text-gray-500">
+                                                    <th className="py-2 pr-2 font-medium">日付</th>
+                                                    <th className="py-2 pr-2 font-medium">名称</th>
+                                                    <th className="py-2 font-medium">出典</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-gray-50">
+                                                {(fy.holiday_list ?? []).map((h, i) => (
+                                                    <tr key={i} className={h.source === 'cabinet_office' ? '' : 'bg-amber-50/40'}>
+                                                        <td className="py-2 pr-2 whitespace-nowrap text-gray-700">{fmtHolidayDate(h.date)}</td>
+                                                        <td className="py-2 pr-2 text-gray-700">{h.label || '—'}</td>
+                                                        <td className="py-2">
+                                                            {h.source === 'cabinet_office'
+                                                                ? <span className="rounded bg-teal-50 px-1.5 py-0.5 text-[11px] font-medium text-teal-700">内閣府</span>
+                                                                : <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700">手入力</span>}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    )}
+                                </div>
+                                <div className="border-t border-gray-100 px-5 py-2.5 text-[11px] text-gray-400">
+                                    {fy.holidays_imported_at ? `最終取込: ${fmtImportedAt(fy.holidays_imported_at)}` : '内閣府からの取込: 未実行'} / 出典: 内閣府（CC BY）
+                                </div>
+                            </div>
                         </div>
                     )}
                 </>

@@ -1010,8 +1010,8 @@ class PayrollCalculator
     }
 
     /**
-     * 対象期間の「当月の所定労働日数/時間」を暦（休日曜日を除く）から算出する。
-     * 既定は 法定休日=日曜 / 所定休日=土曜。1日の所定労働時間は settings から取得。
+     * 対象期間の「当月の所定労働日数/時間」を暦から算出する。
+     * 休日判定は AttendanceSummaryService と同じ優先順位（年度設定 → 勤怠設定フォールバック）。
      *
      * @param  array<string, mixed>  $settings
      * @return array{scheduledDaysMonthActual: float, scheduledHoursMonthActual: float}
@@ -1019,19 +1019,7 @@ class PayrollCalculator
     private function scheduledForPeriod(PayrollRun $run, array $settings): array
     {
         $period = MonthPeriod::resolve($run->period_key);
-        $legal = $this->splitDows(Setting::getValue('legal_holiday_dows', 'sunday'));
-        $prescribed = $this->splitDows(Setting::getValue('prescribed_holiday_dows', 'saturday'));
-        $holidays = array_merge($legal, $prescribed);
-
-        $days = 0;
-        $cursor = Carbon::parse($period['from']);
-        $end = Carbon::parse($period['to']);
-        while ($cursor->lte($end)) {
-            if (! in_array(strtolower($cursor->englishDayOfWeek), $holidays, true)) {
-                $days++;
-            }
-            $cursor->addDay();
-        }
+        $days = $this->summaries->scheduledDaysInPeriod($period['from'], $period['to']);
 
         $hoursPerDay = ((float) ($settings['workHoursPerDayMin'] ?? 0)) / 60.0;
 
@@ -1039,23 +1027,6 @@ class PayrollCalculator
             'scheduledDaysMonthActual' => (float) $days,
             'scheduledHoursMonthActual' => $hoursPerDay * $days,
         ];
-    }
-
-    /**
-     * "sunday,saturday" 形式の設定値を小文字曜日名の配列へ。
-     *
-     * @return array<int, string>
-     */
-    private function splitDows(?string $value): array
-    {
-        if (! $value) {
-            return [];
-        }
-
-        return array_values(array_filter(array_map(
-            fn ($d) => strtolower(trim($d)),
-            explode(',', $value),
-        )));
     }
 
     private function roundYen(float $value, string $rule): int

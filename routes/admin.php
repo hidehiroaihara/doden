@@ -105,6 +105,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         // 基本設定＞年度設定(se15)
         Route::post('payroll/settings/fiscal-years', [PayrollSettingController::class, 'storeFiscalYear'])->name('payroll.settings.fiscal-years.store');
         Route::put('payroll/settings/fiscal-years/{fiscalYear}', [PayrollSettingController::class, 'updateFiscalYear'])->name('payroll.settings.fiscal-years.update');
+        Route::post('payroll/settings/fiscal-years/{fiscalYear}/import-holidays', [PayrollSettingController::class, 'importFiscalYearHolidays'])->name('payroll.settings.fiscal-years.import-holidays');
 
         // 基本設定＞明細設定(se17)
         Route::put('payroll/settings/payslip', [PayrollSettingController::class, 'updatePayslipSettings'])->name('payroll.settings.payslip');

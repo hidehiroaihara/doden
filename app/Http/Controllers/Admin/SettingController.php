@@ -41,7 +41,7 @@ class SettingController extends Controller
             'month_closing_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             // 打刻時に顔写真（カメラ・顔認識）を使用するか
             'punch_use_photo' => ['nullable', 'boolean'],
-            // 休日区分（給与計算の勤怠項目「所定休日/法定休日」判定に使用）
+            // 休日区分（年度設定未作成時のフォールバック。判定ロジックは AttendanceSummaryService と共通）
             'legal_holiday_dows' => ['nullable', 'array'],
             'legal_holiday_dows.*' => ['in:'.implode(',', $dows)],
             'prescribed_holiday_dows' => ['nullable', 'array'],

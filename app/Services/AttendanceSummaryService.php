@@ -265,6 +265,33 @@ class AttendanceSummaryService
     }
 
     /**
+     * 期間内の所定労働日数（平日数）を数える。
+     * dayType() と同じ優先順位（年度設定 → 勤怠設定フォールバック）を日ごとに適用する。
+     * 締め日で月をまたぐ期間では、日付ごとの暦年で年度設定を解決する。
+     */
+    public function scheduledDaysInPeriod(string $from, string $to): int
+    {
+        $days = 0;
+        $cursor = Carbon::parse($from)->startOfDay();
+        $end = Carbon::parse($to)->startOfDay();
+        /** @var array<string, array<string, mixed>> */
+        $settingsCache = [];
+
+        while ($cursor->lte($end)) {
+            $yearKey = $cursor->format('Y');
+            if (! isset($settingsCache[$yearKey])) {
+                $settingsCache[$yearKey] = $this->loadSettings($cursor->format('Y-m-d'));
+            }
+            if ($this->dayType($cursor, $settingsCache[$yearKey]) === 'weekday') {
+                $days++;
+            }
+            $cursor->addDay();
+        }
+
+        return $days;
+    }
+
+    /**
      * 実勤務区間 [in, out] と 深夜帯(22:00〜翌05:00) の重なり分数。
      * 夜勤(日跨ぎ)に対応するため、勤務にかかる各日の深夜帯を走査して合算する。
      * 各日の深夜帯は互いに重ならないため二重計上は起きない。

@@ -18,6 +18,7 @@ class FiscalYear extends Model
         'work_hours_per_day_minutes',
         'monthly_avg_work_days',
         'monthly_avg_work_hours',
+        'holidays_imported_at',
     ];
 
     protected function casts(): array
@@ -27,6 +28,7 @@ class FiscalYear extends Model
             'work_hours_per_day_minutes' => 'integer',
             'monthly_avg_work_days' => 'decimal:1',
             'monthly_avg_work_hours' => 'decimal:1',
+            'holidays_imported_at' => 'datetime',
         ];
     }
 

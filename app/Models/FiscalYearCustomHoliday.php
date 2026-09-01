@@ -7,7 +7,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class FiscalYearCustomHoliday extends Model
 {
-    protected $fillable = ['fiscal_year_id', 'date', 'label'];
+    public const SOURCE_MANUAL = 'manual';
+    public const SOURCE_CABINET_OFFICE = 'cabinet_office';
+
+    protected $fillable = ['fiscal_year_id', 'date', 'label', 'source'];
 
     protected function casts(): array
     {
