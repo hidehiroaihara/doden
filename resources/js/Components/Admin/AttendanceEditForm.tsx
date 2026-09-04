@@ -1,5 +1,6 @@
 import InputError from '@/Components/InputError';
 import InputLabel from '@/Components/InputLabel';
+import type { FormDataConvertible } from '@inertiajs/core';
 
 export interface BreakFormRow {
     id?: number;
@@ -119,7 +120,7 @@ export interface AttendanceSubmitMeta {
 export function buildAttendanceSubmitPayload(
     values: AttendanceFormValues,
     meta: AttendanceSubmitMeta = {},
-): Record<string, unknown> {
+): Record<string, FormDataConvertible> {
     return {
         user_id: values.user_id,
         work_date: values.work_date,
@@ -231,7 +232,7 @@ export default function AttendanceEditForm({
                     >
                         <i className="fa-solid fa-calendar-days text-teal-500" />
                         <input
-                            ref={workDateInputRef}
+                            ref={workDateInputRef as React.RefObject<HTMLInputElement>}
                             id="work_date"
                             type="date"
                             className="w-full cursor-pointer border-0 p-0 text-sm text-gray-700 focus:ring-0"
