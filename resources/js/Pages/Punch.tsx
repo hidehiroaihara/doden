@@ -124,6 +124,13 @@ export default function Punch({ user, store, serverTime, usePhoto = false }: Pro
     const isAllDone = attendance?.clock_in_at && attendance?.clock_out_at;
     const hasClockedIn = !!(attendance?.clock_in_at && !attendance?.clock_out_at);
 
+    const isCrossDayShift = useMemo(() => {
+        if (!attendance?.work_date || !attendance.clock_in_at || attendance.clock_out_at) return false;
+        const workDate = attendance.work_date.slice(0, 10);
+        const today = now.toLocaleDateString('sv-SE'); // YYYY-MM-DD（ローカル日付）
+        return workDate !== today;
+    }, [attendance, now]);
+
     const handlePunch = async (type: 'clock-in' | 'clock-out') => {
         let photo: string | null = null;
         if (usePhoto) {
@@ -277,6 +284,13 @@ export default function Punch({ user, store, serverTime, usePhoto = false }: Pro
                             )}
                         </div>
                     </div>
+
+                    {isCrossDayShift && (
+                        <div className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 sm:mb-3">
+                            <i className="fa-solid fa-moon mr-1.5" />
+                            前日（{new Date(`${attendance!.work_date.slice(0, 10)}T00:00:00`).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric' })}）からの勤務中です。退勤打刻はこの勤務に記録されます。
+                        </div>
+                    )}
 
                     {/* Camera（顔写真ON時のみ表示） */}
                     {usePhoto && (

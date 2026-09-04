@@ -224,9 +224,15 @@ class AttendanceController extends Controller
             $date = $a->work_date instanceof \DateTimeInterface
                 ? $a->work_date->format('Y-m-d')
                 : (string) $a->work_date;
+            $outNextDay = false;
+            if ($a->clock_out_at) {
+                $outNextDay = Carbon::parse($a->clock_out_at)->format('Y-m-d') > $date;
+            }
+
             $byUser[$a->user_id][$date] = [
                 'in' => $fmtTime($a->clock_in_at),
                 'out' => $fmtTime($a->clock_out_at),
+                'out_next_day' => $outNextDay,
                 'store' => $a->department?->name,
                 'attendance_id' => $a->id,
                 'missing_out' => (bool) ($a->clock_in_at && ! $a->clock_out_at && Carbon::parse($date)->lt(Carbon::today())),
@@ -307,7 +313,10 @@ class AttendanceController extends Controller
             'defaultBreakMinutes' => (int) Setting::getValue('default_break_minutes', 60),
             'presetUserId' => $request->input('user_id', ''),
             'presetDate' => $request->input('date', ''),
-            'returnTo' => $request->query('return_to') === 'user_attendances' ? 'user_attendances' : null,
+            'returnTo' => in_array($request->query('return_to'), ['user_attendances', 'monthly'], true)
+                ? $request->query('return_to')
+                : null,
+            'returnMonth' => $request->query('return_month'),
             'returnMonth' => $request->query('return_month'),
             'returnYear' => $request->query('return_year'),
             'returnDateFrom' => $request->query('return_date_from'),
@@ -315,34 +324,55 @@ class AttendanceController extends Controller
         ]);
     }
 
+    public function formData(Attendance $attendance)
+    {
+        $attendance->load(['user', 'attendanceBreaks']);
+        $workDate = $attendance->work_date->format('Y-m-d');
+
+        return response()->json($this->attendanceFormPayload($attendance, $workDate));
+    }
+
     public function store(Request $request)
     {
-        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+        $validated = $request->validate([
             'user_id' => ['required', 'exists:users,id'],
             'work_date' => ['required', 'date'],
-            'clock_in_at' => ['nullable', 'date'],
-            'clock_out_at' => ['nullable', 'date'],
-            'breaks'              => ['nullable', 'array'],
-            'breaks.*.started_at' => ['required', 'regex:/^\d{2}:\d{2}$/'],
-            'breaks.*.ended_at'   => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'clock_in_time' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'clock_out_time' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'clock_out_next_day' => ['nullable', 'boolean'],
+            'breaks' => ['nullable', 'array'],
+            'breaks.*.started_at' => ['required_with:breaks', 'regex:/^\d{2}:\d{2}$/'],
+            'breaks.*.ended_at' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'breaks.*.start_next_day' => ['nullable', 'boolean'],
+            'breaks.*.end_next_day' => ['nullable', 'boolean'],
             'reason' => ['nullable', 'string', 'max:500'],
-            'return_to' => ['nullable', 'string', 'in:user_attendances'],
+            'return_to' => ['nullable', 'string', 'in:user_attendances,monthly'],
             'return_month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
             'return_year' => ['nullable', 'string', 'regex:/^\d{4}$/'],
             'return_date_from' => ['nullable', 'date_format:Y-m-d'],
             'return_date_to' => ['nullable', 'date_format:Y-m-d'],
         ], [
-            'breaks.*.started_at.required' => '休憩の開始時刻を入力してください',
-            'breaks.*.started_at.regex'    => '休憩の開始時刻の形式が正しくありません',
-            'breaks.*.ended_at.regex'      => '休憩の終了時刻の形式が正しくありません',
+            'breaks.*.started_at.required_with' => '休憩の開始時刻を入力してください',
+            'breaks.*.started_at.regex' => '休憩の開始時刻の形式が正しくありません',
+            'breaks.*.ended_at.regex' => '休憩の終了時刻の形式が正しくありません',
         ]);
-        $validator->after(function ($v) use ($request) {
-            $this->validateBreakRanges($v, $request->input('breaks', []), $request->input('clock_in_at'), $request->input('clock_out_at'));
+
+        $workDate = $validated['work_date'];
+        $times = $this->resolveAttendanceInput($request, $workDate);
+
+        $validator = \Illuminate\Support\Facades\Validator::make($times, [
+            'clock_in_at' => ['nullable', 'date_format:Y-m-d H:i:s'],
+            'clock_out_at' => ['nullable', 'date_format:Y-m-d H:i:s', 'after:clock_in_at'],
+        ], [
+            'clock_out_at.after' => '退勤時刻は出勤時刻より後に設定してください',
+        ]);
+        $validator->after(function ($v) use ($times) {
+            $this->validateBreakRanges($v, $times['breaks'], $times['clock_in_at'], $times['clock_out_at']);
         });
-        $validated = $validator->validate();
+        $times = array_merge($times, $validator->validate());
 
         $existing = Attendance::where('user_id', $validated['user_id'])
-            ->where('work_date', $validated['work_date'])
+            ->where('work_date', $workDate)
             ->first();
 
         if ($existing) {
@@ -352,42 +382,40 @@ class AttendanceController extends Controller
         $attendance = Attendance::create([
             'user_id' => $validated['user_id'],
             'department_id' => User::find($validated['user_id'])?->department_id,
-            'work_date' => $validated['work_date'],
-            'clock_in_at' => $validated['clock_in_at'] ?: null,
-            'clock_out_at' => $validated['clock_out_at'] ?: null,
+            'work_date' => $workDate,
+            'clock_in_at' => $times['clock_in_at'],
+            'clock_out_at' => $times['clock_out_at'],
             'break_minutes' => null,
         ]);
 
         $admin = Auth::guard('admin')->user();
         $now = Carbon::now();
 
-        // 休憩セット保存 + 履歴
-        $workDate = $validated['work_date'];
-        foreach ($validated['breaks'] ?? [] as $row) {
+        foreach ($times['breaks'] as $row) {
             AttendanceBreak::create([
                 'attendance_id' => $attendance->id,
-                'started_at'    => "{$workDate} {$row['started_at']}:00",
-                'ended_at'      => !empty($row['ended_at']) ? "{$workDate} {$row['ended_at']}:00" : null,
+                'started_at' => $row['started_at'],
+                'ended_at' => $row['ended_at'],
             ]);
             AttendanceEditLog::create([
-                'attendance_id'       => $attendance->id,
-                'field_name'          => 'break',
-                'before_value'        => null,
-                'after_value'         => $this->formatBreakRangeFromStrings($row['started_at'], $row['ended_at'] ?? null),
+                'attendance_id' => $attendance->id,
+                'field_name' => 'break',
+                'before_value' => null,
+                'after_value' => $this->formatBreakRangeFromDatetimes($row['started_at'], $row['ended_at']),
                 'modified_by_user_id' => $admin->id,
-                'modified_at'         => $now,
-                'reason'              => $validated['reason'] ?? null,
+                'modified_at' => $now,
+                'reason' => $validated['reason'] ?? null,
             ]);
         }
 
         if ($validated['reason']) {
             foreach (['clock_in_at', 'clock_out_at'] as $field) {
-                if (!empty($validated[$field])) {
+                if (! empty($times[$field])) {
                     AttendanceEditLog::create([
                         'attendance_id' => $attendance->id,
                         'field_name' => $field,
                         'before_value' => null,
-                        'after_value' => $validated[$field],
+                        'after_value' => $times[$field],
                         'modified_by_user_id' => $admin->id,
                         'modified_at' => $now,
                         'reason' => $validated['reason'],
@@ -398,7 +426,6 @@ class AttendanceController extends Controller
 
         return $this->redirectAfterAttendanceSave(
             $request,
-            ($validated['return_to'] ?? null) === 'user_attendances',
             (int) $validated['user_id'],
             '打刻を登録しました'
         );
@@ -410,7 +437,9 @@ class AttendanceController extends Controller
 
         return Inertia::render('Admin/Attendances/Edit', [
             'attendance' => $attendance,
-            'returnTo' => $request->query('return_to') === 'user_attendances' ? 'user_attendances' : null,
+            'returnTo' => in_array($request->query('return_to'), ['user_attendances', 'monthly'], true)
+                ? $request->query('return_to')
+                : null,
             'returnMonth' => $request->query('return_month'),
             'returnYear' => $request->query('return_year'),
             'returnDateFrom' => $request->query('return_date_from'),
@@ -420,101 +449,113 @@ class AttendanceController extends Controller
 
     public function update(Request $request, Attendance $attendance, PhotoStorageService $photos)
     {
-        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
-            'clock_in_at'    => ['nullable', 'date_format:Y-m-d H:i:s'],
-            'clock_out_at'   => ['nullable', 'date_format:Y-m-d H:i:s', 'after:clock_in_at'],
-            'breaks'                   => ['nullable', 'array'],
-            'breaks.*.id'              => ['nullable', 'integer'],
-            'breaks.*.started_at'      => ['required', 'regex:/^\d{2}:\d{2}$/'],
-            'breaks.*.ended_at'        => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
-            'reason'         => ['nullable', 'string', 'max:500'],
-            'return_to'      => ['nullable', 'string', 'in:user_attendances'],
-            'return_month'   => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
-            'return_year'    => ['nullable', 'string', 'regex:/^\d{4}$/'],
+        $workDate = $attendance->work_date->format('Y-m-d');
+
+        $request->validate([
+            'clock_in_time' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'clock_out_time' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'clock_out_next_day' => ['nullable', 'boolean'],
+            'breaks' => ['nullable', 'array'],
+            'breaks.*.id' => ['nullable', 'integer'],
+            'breaks.*.started_at' => ['required_with:breaks', 'regex:/^\d{2}:\d{2}$/'],
+            'breaks.*.ended_at' => ['nullable', 'regex:/^\d{2}:\d{2}$/'],
+            'breaks.*.start_next_day' => ['nullable', 'boolean'],
+            'breaks.*.end_next_day' => ['nullable', 'boolean'],
+            'reason' => ['nullable', 'string', 'max:500'],
+            'return_to' => ['nullable', 'string', 'in:user_attendances,monthly'],
+            'return_month' => ['nullable', 'string', 'regex:/^\d{4}-\d{2}$/'],
+            'return_year' => ['nullable', 'string', 'regex:/^\d{4}$/'],
             'return_date_from' => ['nullable', 'date_format:Y-m-d'],
-            'return_date_to'   => ['nullable', 'date_format:Y-m-d'],
+            'return_date_to' => ['nullable', 'date_format:Y-m-d'],
         ], [
-            'clock_in_at.date_format'  => '出勤時刻の形式が正しくありません',
-            'clock_out_at.date_format' => '退勤時刻の形式が正しくありません',
-            'clock_out_at.after'       => '退勤時刻は出勤時刻より後に設定してください',
-            'breaks.*.started_at.required' => '休憩の開始時刻を入力してください',
-            'breaks.*.started_at.regex'    => '休憩の開始時刻の形式が正しくありません',
-            'breaks.*.ended_at.regex'      => '休憩の終了時刻の形式が正しくありません',
+            'breaks.*.started_at.required_with' => '休憩の開始時刻を入力してください',
+            'breaks.*.started_at.regex' => '休憩の開始時刻の形式が正しくありません',
+            'breaks.*.ended_at.regex' => '休憩の終了時刻の形式が正しくありません',
         ]);
-        $validator->after(function ($v) use ($request) {
-            $this->validateBreakRanges($v, $request->input('breaks', []), $request->input('clock_in_at'), $request->input('clock_out_at'));
+
+        $times = $this->resolveAttendanceInput($request, $workDate);
+
+        $validator = \Illuminate\Support\Facades\Validator::make($times, [
+            'clock_in_at' => ['nullable', 'date_format:Y-m-d H:i:s'],
+            'clock_out_at' => ['nullable', 'date_format:Y-m-d H:i:s', 'after:clock_in_at'],
+        ], [
+            'clock_out_at.after' => '退勤時刻は出勤時刻より後に設定してください',
+        ]);
+        $validator->after(function ($v) use ($times) {
+            $this->validateBreakRanges($v, $times['breaks'], $times['clock_in_at'], $times['clock_out_at']);
         });
-        $validated = $validator->validate();
+        $times = array_merge($times, $validator->validate());
+        $reason = $request->input('reason');
 
         $admin = Auth::guard('admin')->user();
         $now = Carbon::now();
 
         foreach (['clock_in_at', 'clock_out_at'] as $field) {
-            if (array_key_exists($field, $validated) && $validated[$field] !== ($attendance->$field?->toIso8601String())) {
+            $before = $attendance->$field?->format('Y-m-d H:i:s');
+            $after = $times[$field];
+            if ($after !== $before) {
                 AttendanceEditLog::create([
                     'attendance_id' => $attendance->id,
                     'field_name' => $field,
-                    'before_value' => $attendance->$field?->format('Y-m-d H:i:s'),
-                    'after_value' => $validated[$field],
+                    'before_value' => $before,
+                    'after_value' => $after,
                     'modified_by_user_id' => $admin->id,
                     'modified_at' => $now,
-                    'reason' => $validated['reason'] ?? null,
+                    'reason' => $reason,
                 ]);
             }
         }
 
         $attendance->update([
-            'clock_in_at'   => $validated['clock_in_at'],
-            'clock_out_at'  => $validated['clock_out_at'],
+            'clock_in_at' => $times['clock_in_at'],
+            'clock_out_at' => $times['clock_out_at'],
             'break_minutes' => null,
         ]);
 
-        // 休憩セット同期: 送信された breaks 配列で完全に置き換え
-        $workDate = $attendance->work_date->format('Y-m-d');
-        $incoming = collect($validated['breaks'] ?? []);
-        $keepIds  = $incoming->pluck('id')->filter()->map(fn($v) => (int) $v)->all();
+        $incoming = collect($times['breaks']);
+        $keepIds = $incoming->pluck('id')->filter()->map(fn ($v) => (int) $v)->all();
 
         $attendance->load('attendanceBreaks');
         $existingById = $attendance->attendanceBreaks->keyBy('id');
 
-        // 配列に含まれない既存レコードは写真ごと削除 + 履歴
         foreach ($attendance->attendanceBreaks as $existing) {
             if (! in_array($existing->id, $keepIds, true)) {
-                if ($existing->start_photo_path) $photos->delete($existing->start_photo_path);
-                if ($existing->end_photo_path)   $photos->delete($existing->end_photo_path);
+                if ($existing->start_photo_path) {
+                    $photos->delete($existing->start_photo_path);
+                }
+                if ($existing->end_photo_path) {
+                    $photos->delete($existing->end_photo_path);
+                }
                 AttendanceEditLog::create([
-                    'attendance_id'       => $attendance->id,
-                    'field_name'          => 'break',
-                    'before_value'        => $this->formatBreakRange($existing->started_at, $existing->ended_at),
-                    'after_value'         => null,
+                    'attendance_id' => $attendance->id,
+                    'field_name' => 'break',
+                    'before_value' => $this->formatBreakRange($existing->started_at, $existing->ended_at),
+                    'after_value' => null,
                     'modified_by_user_id' => $admin->id,
-                    'modified_at'         => $now,
-                    'reason'              => $validated['reason'] ?? null,
+                    'modified_at' => $now,
+                    'reason' => $reason,
                 ]);
                 $existing->delete();
             }
         }
 
-        // 既存は更新、id なしは新規作成（差分があるときだけ履歴）
         foreach ($incoming as $row) {
-            $startStr = "{$workDate} {$row['started_at']}:00";
-            $endStr   = !empty($row['ended_at']) ? "{$workDate} {$row['ended_at']}:00" : null;
-            $payload  = ['started_at' => $startStr, 'ended_at' => $endStr];
+            $payload = ['started_at' => $row['started_at'], 'ended_at' => $row['ended_at']];
+            $afterRange = $this->formatBreakRangeFromDatetimes($row['started_at'], $row['ended_at']);
 
-            if (!empty($row['id']) && $existingById->has((int) $row['id'])) {
+            if (! empty($row['id']) && $existingById->has((int) $row['id'])) {
                 $existing = $existingById->get((int) $row['id']);
                 $beforeRange = $this->formatBreakRange($existing->started_at, $existing->ended_at);
-                $afterRange  = $this->formatBreakRangeFromStrings($row['started_at'], $row['ended_at'] ?? null);
 
                 if ($beforeRange !== $afterRange) {
                     AttendanceEditLog::create([
-                        'attendance_id'       => $attendance->id,
-                        'field_name'          => 'break',
-                        'before_value'        => $beforeRange,
-                        'after_value'         => $afterRange,
+                        'attendance_id' => $attendance->id,
+                        'field_name' => 'break',
+                        'before_value' => $beforeRange,
+                        'after_value' => $afterRange,
                         'modified_by_user_id' => $admin->id,
-                        'modified_at'         => $now,
-                        'reason'              => $validated['reason'] ?? null,
+                        'modified_at' => $now,
+                        'reason' => $reason,
                     ]);
                 }
 
@@ -524,20 +565,19 @@ class AttendanceController extends Controller
             } else {
                 AttendanceBreak::create($payload + ['attendance_id' => $attendance->id]);
                 AttendanceEditLog::create([
-                    'attendance_id'       => $attendance->id,
-                    'field_name'          => 'break',
-                    'before_value'        => null,
-                    'after_value'         => $this->formatBreakRangeFromStrings($row['started_at'], $row['ended_at'] ?? null),
+                    'attendance_id' => $attendance->id,
+                    'field_name' => 'break',
+                    'before_value' => null,
+                    'after_value' => $afterRange,
                     'modified_by_user_id' => $admin->id,
-                    'modified_at'         => $now,
-                    'reason'              => $validated['reason'] ?? null,
+                    'modified_at' => $now,
+                    'reason' => $reason,
                 ]);
             }
         }
 
         return $this->redirectAfterAttendanceSave(
             $request,
-            ($validated['return_to'] ?? null) === 'user_attendances',
             (int) $attendance->user_id,
             '打刻情報を修正しました'
         );
@@ -560,7 +600,6 @@ class AttendanceController extends Controller
 
         return $this->redirectAfterAttendanceSave(
             $request,
-            $request->input('return_to') === 'user_attendances',
             $userId,
             '打刻記録を削除しました'
         );
@@ -927,25 +966,33 @@ class AttendanceController extends Controller
      */
     private function validateBreakRanges($v, array $breaks, ?string $clockInRaw, ?string $clockOutRaw): void
     {
-        $clockIn  = $clockInRaw  ? Carbon::parse($clockInRaw)->format('H:i')  : null;
-        $clockOut = $clockOutRaw ? Carbon::parse($clockOutRaw)->format('H:i') : null;
+        if (! $clockInRaw || ! $clockOutRaw) {
+            return;
+        }
+
+        $clockIn = Carbon::parse($clockInRaw);
+        $clockOut = Carbon::parse($clockOutRaw);
 
         foreach ($breaks as $i => $row) {
-            $start = $row['started_at'] ?? null;
-            $end   = $row['ended_at']   ?? null;
+            $startRaw = $row['started_at'] ?? null;
+            $endRaw = $row['ended_at'] ?? null;
 
-            // HH:MM 形式以外はスキップ（別ルールでエラー検出済み）
-            if ($start && ! preg_match('/^\d{2}:\d{2}$/', $start)) continue;
-            if ($end   && ! preg_match('/^\d{2}:\d{2}$/', $end))   continue;
+            if (! $startRaw) {
+                continue;
+            }
 
-            if ($start && $clockIn && $start < $clockIn) {
+            $start = Carbon::parse($startRaw);
+            if ($start->lt($clockIn)) {
                 $v->errors()->add("breaks.{$i}.started_at", '休憩の開始時刻は出勤時刻以降にしてください');
             }
-            if ($end && $clockOut && $end > $clockOut) {
-                $v->errors()->add("breaks.{$i}.ended_at", '休憩の終了時刻は退勤時刻以前にしてください');
-            }
-            if ($start && $end && $end < $start) {
-                $v->errors()->add("breaks.{$i}.ended_at", '休憩の終了時刻は開始時刻より後にしてください');
+            if ($endRaw) {
+                $end = Carbon::parse($endRaw);
+                if ($end->gt($clockOut)) {
+                    $v->errors()->add("breaks.{$i}.ended_at", '休憩の終了時刻は退勤時刻以前にしてください');
+                }
+                if ($end->lte($start)) {
+                    $v->errors()->add("breaks.{$i}.ended_at", '休憩の終了時刻は開始時刻より後にしてください');
+                }
             }
         }
     }
@@ -1035,23 +1082,123 @@ class AttendanceController extends Controller
     /**
      * 打刻登録・修正後のリダイレクト先（ユーザー別打刻一覧から来た場合はその一覧へ戻す）
      */
-    private function redirectAfterAttendanceSave(Request $request, bool $toUserAttendances, int $userId, string $message): \Illuminate\Http\RedirectResponse
+    private function redirectAfterAttendanceSave(Request $request, int $userId, string $message): \Illuminate\Http\RedirectResponse
     {
-        if (!$toUserAttendances) {
-            return redirect()->route('admin.attendances.index')->with('success', $message);
+        $returnTo = $request->input('return_to');
+
+        if ($returnTo === 'monthly') {
+            return redirect()->route('admin.attendances.monthly', array_filter([
+                'month' => $request->input('return_month'),
+            ]))->with('success', $message);
         }
 
-        $routeParams = array_merge(
-            ['user' => $userId],
-            array_filter([
-                'month' => $request->input('return_month'),
-                'year' => $request->input('return_year'),
-                'date_from' => $request->input('return_date_from'),
-                'date_to' => $request->input('return_date_to'),
-            ], fn ($v) => $v !== null && $v !== '')
-        );
+        if ($returnTo === 'user_attendances') {
+            $routeParams = array_merge(
+                ['user' => $userId],
+                array_filter([
+                    'month' => $request->input('return_month'),
+                    'year' => $request->input('return_year'),
+                    'date_from' => $request->input('return_date_from'),
+                    'date_to' => $request->input('return_date_to'),
+                ], fn ($v) => $v !== null && $v !== '')
+            );
 
-        return redirect()->route('admin.users.attendances', $routeParams)->with('success', $message);
+            return redirect()->route('admin.users.attendances', $routeParams)->with('success', $message);
+        }
+
+        return redirect()->route('admin.attendances.index')->with('success', $message);
+    }
+
+    /**
+     * @return array{clock_in_at: ?string, clock_out_at: ?string, breaks: array<int, array{id: ?int, started_at: string, ended_at: ?string}>}
+     */
+    private function resolveAttendanceInput(Request $request, string $workDate): array
+    {
+        $clockIn = $request->filled('clock_in_time')
+            ? $this->resolveDateTime($workDate, $request->input('clock_in_time'), false)
+            : null;
+
+        $clockOut = $request->filled('clock_out_time')
+            ? $this->resolveDateTime($workDate, $request->input('clock_out_time'), $request->boolean('clock_out_next_day'))
+            : null;
+
+        $breaks = [];
+        foreach ($request->input('breaks', []) as $row) {
+            if (empty($row['started_at'])) {
+                continue;
+            }
+            $breaks[] = [
+                'id' => $row['id'] ?? null,
+                'started_at' => $this->resolveDateTime($workDate, $row['started_at'], ! empty($row['start_next_day'])),
+                'ended_at' => ! empty($row['ended_at'])
+                    ? $this->resolveDateTime($workDate, $row['ended_at'], ! empty($row['end_next_day']))
+                    : null,
+            ];
+        }
+
+        return [
+            'clock_in_at' => $clockIn,
+            'clock_out_at' => $clockOut,
+            'breaks' => $breaks,
+        ];
+    }
+
+    private function resolveDateTime(string $workDate, string $time, bool $nextDay): string
+    {
+        $dt = Carbon::parse($workDate)->setTimeFromTimeString($time);
+        if ($nextDay) {
+            $dt->addDay();
+        }
+
+        return $dt->format('Y-m-d H:i:s');
+    }
+
+    /** @return array<string, mixed> */
+    private function attendanceFormPayload(Attendance $attendance, string $workDate): array
+    {
+        $clockOutNextDay = false;
+        if ($attendance->clock_out_at) {
+            $clockOutNextDay = $attendance->clock_out_at->format('Y-m-d') > $workDate;
+        }
+
+        $breaks = $attendance->attendanceBreaks->map(function ($b) use ($workDate) {
+            $startNext = $b->started_at && $b->started_at->format('Y-m-d') > $workDate;
+            $endNext = $b->ended_at && $b->ended_at->format('Y-m-d') > $workDate;
+
+            return [
+                'id' => $b->id,
+                'started_at' => $b->started_at?->format('H:i') ?? '',
+                'ended_at' => $b->ended_at?->format('H:i') ?? '',
+                'start_next_day' => $startNext,
+                'end_next_day' => $endNext,
+            ];
+        })->values()->all();
+
+        if ($breaks === []) {
+            $breaks = [['started_at' => '', 'ended_at' => '', 'start_next_day' => false, 'end_next_day' => false]];
+        }
+
+        return [
+            'id' => $attendance->id,
+            'user_id' => $attendance->user_id,
+            'user_name' => $attendance->user->name,
+            'work_date' => $workDate,
+            'department_name' => $attendance->department?->name,
+            'clock_in_time' => $attendance->clock_in_at?->format('H:i') ?? '',
+            'clock_out_time' => $attendance->clock_out_at?->format('H:i') ?? '',
+            'clock_out_next_day' => $clockOutNextDay,
+            'clock_out_at_label' => $attendance->clock_out_at?->format('Y/m/d H:i'),
+            'break_minutes' => $attendance->break_minutes,
+            'breaks' => $breaks,
+        ];
+    }
+
+    private function formatBreakRangeFromDatetimes(?string $start, ?string $end): string
+    {
+        $s = $start ? Carbon::parse($start)->format('Y-m-d H:i') : '';
+        $e = $end ? Carbon::parse($end)->format('Y-m-d H:i') : '未終了';
+
+        return "{$s} 〜 {$e}";
     }
 
     /**

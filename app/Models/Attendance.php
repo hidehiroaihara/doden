@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
+use App\Support\PunchBusinessDate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,8 +10,6 @@ use Illuminate\Support\Collection;
 
 class Attendance extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
         'user_id',
         'department_id',
@@ -67,5 +65,35 @@ class Attendance extends Model
         }
 
         return $completed->sum(fn ($b) => (int) $b->started_at->diffInMinutes($b->ended_at));
+    }
+
+    /**
+     * 退勤未打刻の勤怠を返す（日跨ぎ勤務の退勤・休憩用）。
+     * 複数ある場合は直近の出勤を優先する。
+     */
+    public static function findOpenForUser(int $userId): ?self
+    {
+        return static::query()
+            ->where('user_id', $userId)
+            ->where('work_date', PunchBusinessDate::date())
+            ->whereNotNull('clock_in_at')
+            ->whereNull('clock_out_at')
+            ->orderByDesc('clock_in_at')
+            ->first();
+    }
+
+    /** 打刻画面で表示・操作対象となる勤怠（未退勤があれば日跨ぎでもそれを優先）。 */
+    public static function findActiveForPunch(int $userId): ?self
+    {
+        $open = static::findOpenForUser($userId);
+        if ($open) {
+            return $open->load('attendanceBreaks');
+        }
+
+        return static::query()
+            ->with('attendanceBreaks')
+            ->where('user_id', $userId)
+            ->where('work_date', PunchBusinessDate::date())
+            ->first();
     }
 }

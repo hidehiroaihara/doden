@@ -1,17 +1,25 @@
+import AttendanceEditForm, {
+    AttendanceFormValues,
+    attendanceFormValuesFromPayload,
+    buildAttendanceSubmitPayload,
+    emptyAttendanceFormValues,
+} from '@/Components/Admin/AttendanceEditForm';
 import AdminLayout from '@/Layouts/AdminLayout';
+import { useAdminPermission } from '@/hooks/useAdminPermission';
 import {
     currentMonthKey,
     monthLabel as fmtMonthLabel,
     useMonthClosingDay,
 } from '@/lib/monthPeriod';
-import { Head, Link, router } from '@inertiajs/react';
-import { useState } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
+import { FormEventHandler, useCallback, useState } from 'react';
 
 interface DayCell {
     in: string | null;
     out: string | null;
+    out_next_day?: boolean;
     store?: string | null;
-    attendance_id: number;
+    attendance_id?: number;
     missing_out: boolean;
 }
 
@@ -47,6 +55,15 @@ interface Props {
     filters: { search: string; department_id: string };
 }
 
+interface ModalState {
+    mode: 'create' | 'edit';
+    userId: number;
+    userName: string;
+    workDate: string;
+    attendanceId?: number;
+    departmentName?: string | null;
+}
+
 export default function MonthlySheet({
     rows,
     days,
@@ -58,8 +75,14 @@ export default function MonthlySheet({
     filters,
 }: Props) {
     const closingDay = useMonthClosingDay();
+    const canWrite = useAdminPermission('attendances');
+    const pageErrors = usePage().props.errors as Record<string, string>;
     const [search, setSearch] = useState(filters.search || '');
     const [departmentId, setDepartmentId] = useState(filters.department_id || '');
+    const [modal, setModal] = useState<ModalState | null>(null);
+    const [formValues, setFormValues] = useState<AttendanceFormValues | null>(null);
+    const [loadingForm, setLoadingForm] = useState(false);
+    const [processing, setProcessing] = useState(false);
 
     const navigate = (params: Record<string, string>) => {
         router.get(
@@ -97,12 +120,101 @@ export default function MonthlySheet({
         return 'text-gray-500';
     };
 
+    const formatOutTime = (cell: DayCell) => {
+        if (!cell.out) return cell.missing_out ? '未' : '--:--';
+        return cell.out_next_day ? `${cell.out}翌` : cell.out;
+    };
+
+    const closeModal = () => {
+        setModal(null);
+        setFormValues(null);
+        setLoadingForm(false);
+    };
+
+    const openCell = useCallback(
+        async (row: Row, date: string, cell: DayCell | null) => {
+            if (!canWrite) return;
+
+            if (cell?.attendance_id) {
+                setModal({
+                    mode: 'edit',
+                    userId: row.user_id,
+                    userName: row.user_name,
+                    workDate: date,
+                    attendanceId: cell.attendance_id,
+                    departmentName: cell.store,
+                });
+                setFormValues(null);
+                setLoadingForm(true);
+
+                try {
+                    const res = await fetch(route('admin.attendances.form-data', cell.attendance_id), {
+                        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!res.ok) throw new Error('load failed');
+                    const data = await res.json();
+                    setFormValues(attendanceFormValuesFromPayload(data));
+                    setModal((m) =>
+                        m
+                            ? {
+                                  ...m,
+                                  departmentName: data.department_name ?? m.departmentName,
+                              }
+                            : m,
+                    );
+                } catch {
+                    closeModal();
+                } finally {
+                    setLoadingForm(false);
+                }
+            } else {
+                setModal({
+                    mode: 'create',
+                    userId: row.user_id,
+                    userName: row.user_name,
+                    workDate: date,
+                    departmentName: row.department,
+                });
+                setFormValues(
+                    emptyAttendanceFormValues({
+                        user_id: String(row.user_id),
+                        work_date: date,
+                    }),
+                );
+            }
+        },
+        [canWrite],
+    );
+
+    const submit: FormEventHandler = (e) => {
+        e.preventDefault();
+        if (!modal || !formValues) return;
+
+        setProcessing(true);
+        const meta = { return_to: 'monthly', return_month: monthKey };
+        const payload = buildAttendanceSubmitPayload(formValues, meta);
+
+        if (modal.mode === 'edit' && modal.attendanceId) {
+            router.put(route('admin.attendances.update', modal.attendanceId), payload, {
+                preserveScroll: true,
+                onSuccess: () => closeModal(),
+                onFinish: () => setProcessing(false),
+            });
+        } else {
+            router.post(route('admin.attendances.store'), payload, {
+                preserveScroll: true,
+                onSuccess: () => closeModal(),
+                onFinish: () => setProcessing(false),
+            });
+        }
+    };
+
     return (
         <AdminLayout header={<h2 className="text-xl font-bold text-gray-800">月別打刻表</h2>}>
             <Head title={`${monthLabel} 月別打刻表`} />
 
             <div className="p-4 lg:p-6 space-y-4">
-                {/* Toolbar */}
                 <div className="flex flex-wrap items-center gap-3 rounded-xl bg-white px-4 py-3 shadow-sm ring-1 ring-gray-100">
                     <button
                         onClick={() => goToMonth(prevMonth)}
@@ -177,7 +289,6 @@ export default function MonthlySheet({
                     </div>
                 </div>
 
-                {/* Sheet */}
                 <div className="rounded-xl bg-white shadow-sm ring-1 ring-gray-100">
                     <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2.5">
                         <i className="fa-solid fa-table-cells text-teal-500 text-sm" />
@@ -238,12 +349,21 @@ export default function MonthlySheet({
                                             </td>
                                             {days.map((col) => {
                                                 const cell = row.cells[col.date];
+                                                const clickable = canWrite;
                                                 return (
                                                     <td
                                                         key={col.date}
                                                         className={`border-b border-l border-gray-100 px-1.5 py-1 text-center align-middle ${
                                                             col.is_weekend ? 'bg-gray-50/60' : ''
-                                                        }`}
+                                                        } ${clickable ? 'cursor-pointer hover:bg-teal-50/80' : ''}`}
+                                                        onClick={() => clickable && openCell(row, col.date, cell)}
+                                                        title={
+                                                            clickable
+                                                                ? cell?.in
+                                                                    ? 'クリックで打刻を編集'
+                                                                    : 'クリックで打刻を登録'
+                                                                : undefined
+                                                        }
                                                     >
                                                         {cell && cell.in ? (
                                                             <div className="leading-tight">
@@ -257,10 +377,13 @@ export default function MonthlySheet({
                                                                             : 'text-amber-500'
                                                                     }`}
                                                                 >
-                                                                    {cell.out ?? (cell.missing_out ? '未' : '--:--')}
+                                                                    {formatOutTime(cell)}
                                                                 </div>
                                                                 {cell.store && (
-                                                                    <div className="truncate text-[10px] text-gray-400" title={cell.store}>
+                                                                    <div
+                                                                        className="truncate text-[10px] text-gray-400"
+                                                                        title={cell.store}
+                                                                    >
                                                                         {cell.store}
                                                                     </div>
                                                                 )}
@@ -282,11 +405,74 @@ export default function MonthlySheet({
                 <p className="text-[11px] text-gray-400">
                     <span className="font-mono text-green-600">上段</span>=出勤 /{' '}
                     <span className="font-mono text-blue-600">下段</span>=退勤（
-                    <span className="text-amber-500">未</span>=退勤打刻なし）。
-                    <span className="text-gray-400">打刻店舗</span>は退勤時刻の下に表示。
-                    従業員名の下は主所属店舗。従業員名をクリックすると月別の詳細ページへ移動します。
+                    <span className="text-amber-500">未</span>=退勤打刻なし、
+                    <span className="font-mono text-blue-600">翌</span>=翌日退勤）。
+                    {canWrite && ' セルをクリックすると打刻の登録・編集ができます。'}
                 </p>
             </div>
+
+            {modal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeModal}>
+                    <div
+                        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="mb-4 flex items-start justify-between gap-3 border-b border-gray-100 pb-3">
+                            <div>
+                                <h3 className="text-base font-bold text-gray-800">
+                                    {modal.mode === 'edit' ? '打刻修正' : '打刻登録'}
+                                </h3>
+                                <p className="mt-0.5 text-sm text-gray-500">
+                                    {modal.userName} / {modal.workDate}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeModal}
+                                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                            >
+                                <i className="fa-solid fa-xmark" />
+                            </button>
+                        </div>
+
+                        {loadingForm || !formValues ? (
+                            <div className="flex items-center justify-center py-12 text-sm text-gray-400">
+                                <i className="fa-solid fa-spinner fa-spin mr-2" />
+                                読み込み中…
+                            </div>
+                        ) : (
+                            <form onSubmit={submit}>
+                                <AttendanceEditForm
+                                    mode={modal.mode}
+                                    values={formValues}
+                                    onChange={setFormValues}
+                                    errors={pageErrors}
+                                    userName={modal.userName}
+                                    departmentName={modal.departmentName}
+                                    showUserSelect={false}
+                                    showWorkDate={false}
+                                />
+                                <div className="mt-6 flex justify-end gap-2 border-t border-gray-100 pt-4">
+                                    <button
+                                        type="button"
+                                        onClick={closeModal}
+                                        className="rounded-lg px-4 py-2 text-sm font-medium text-gray-600 hover:bg-gray-100"
+                                    >
+                                        キャンセル
+                                    </button>
+                                    <button
+                                        type="submit"
+                                        disabled={processing}
+                                        className="rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+                                    >
+                                        {modal.mode === 'edit' ? '保存' : '登録'}
+                                    </button>
+                                </div>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            )}
         </AdminLayout>
     );
 }

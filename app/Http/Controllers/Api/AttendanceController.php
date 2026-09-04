@@ -9,6 +9,7 @@ use App\Models\AttendanceBreak;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\PhotoStorageService;
+use App\Support\PunchBusinessDate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -25,10 +26,7 @@ class AttendanceController extends Controller
             'user_id' => ['required', 'exists:users,id'],
         ]);
 
-        $attendance = Attendance::with('attendanceBreaks')
-            ->where('user_id', $request->input('user_id'))
-            ->where('work_date', Carbon::today()->toDateString())
-            ->first();
+        $attendance = Attendance::findActiveForPunch((int) $request->input('user_id'));
 
         return response()->json([
             'attendance' => $attendance,
@@ -44,10 +42,16 @@ class AttendanceController extends Controller
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
-        $today = Carbon::today()->toDateString();
+        $businessDate = PunchBusinessDate::date();
+
+        if (Attendance::findOpenForUser($user->id)) {
+            return response()->json([
+                'message' => '未退勤の打刻があります。先に退勤してください',
+            ], 409);
+        }
 
         $existing = Attendance::where('user_id', $user->id)
-            ->where('work_date', $today)
+            ->where('work_date', $businessDate)
             ->first();
 
         if ($existing) {
@@ -66,7 +70,7 @@ class AttendanceController extends Controller
         $attendance = Attendance::create([
             'user_id' => $user->id,
             'department_id' => $departmentId,
-            'work_date' => $today,
+            'work_date' => $businessDate,
             'clock_in_at' => Carbon::now(),
             'clock_in_photo_path' => $photoPath,
             'clock_in_ip' => $request->ip(),
@@ -90,11 +94,8 @@ class AttendanceController extends Controller
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
-        $today = Carbon::today()->toDateString();
 
-        $attendance = Attendance::where('user_id', $user->id)
-            ->where('work_date', $today)
-            ->first();
+        $attendance = Attendance::findOpenForUser($user->id);
 
         if (! $attendance) {
             return response()->json([
@@ -140,11 +141,8 @@ class AttendanceController extends Controller
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
-        $today = Carbon::today()->toDateString();
 
-        $attendance = Attendance::where('user_id', $user->id)
-            ->where('work_date', $today)
-            ->first();
+        $attendance = Attendance::findOpenForUser($user->id);
 
         if (! $attendance || ! $attendance->clock_in_at) {
             return response()->json(['message' => '出勤打刻がないため休憩できません'], 409);
@@ -184,11 +182,8 @@ class AttendanceController extends Controller
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
-        $today = Carbon::today()->toDateString();
 
-        $attendance = Attendance::where('user_id', $user->id)
-            ->where('work_date', $today)
-            ->first();
+        $attendance = Attendance::findOpenForUser($user->id);
 
         if (! $attendance) {
             return response()->json(['message' => '打刻レコードが見つかりません'], 409);

@@ -223,6 +223,7 @@ interface AttendanceSettings {
     salary_round_minutes: string | null;
     salary_round_rule: string | null;
     punch_use_photo: boolean;
+    punch_day_boundary_hour: string;
     work_start_time: string | null;
     work_end_time: string | null;
     work_hours_per_day: string | null;
@@ -459,6 +460,7 @@ interface WorkSettingsData {
     salary_round_minutes: string;
     salary_round_rule: string;
     punch_use_photo: boolean;
+    punch_day_boundary_hour: string;
     work_start_time: string;
     work_end_time: string;
     work_hours_per_day: string;
@@ -584,6 +586,35 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                         </span>
                     </span>
                 </label>
+            </div>
+
+            {/* 打刻営業日の切替時刻 */}
+            <div className={cardSection}>
+                {head('fa-clock', 'bg-sky-100 text-sky-600', '打刻営業日の切替', '日跨ぎ勤務と翌朝の新規出勤を両立するため、深夜帯の打刻をどの「営業日」に属させるかを設定します。')}
+                <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-500">営業日切替時刻</label>
+                    <div className="flex items-center gap-2">
+                        <select
+                            disabled={!canWrite}
+                            className={`w-32 ${input}`}
+                            value={data.punch_day_boundary_hour}
+                            onChange={(e) => setData('punch_day_boundary_hour', e.target.value)}
+                        >
+                            {[0, 1, 2, 3, 4, 5, 6].map((h) => (
+                                <option key={h} value={String(h)}>
+                                    {h}時
+                                </option>
+                            ))}
+                        </select>
+                        <span className="text-sm text-gray-500">未満は前日の営業日</span>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-400">
+                        例: 5時に設定すると、4:59までの打刻は前日扱い、5:00から新しい営業日になります。未退勤の古いシフトは退勤忘れとして残りますが、新しい営業日になれば新規出勤は可能です。
+                    </p>
+                    {errors.punch_day_boundary_hour && (
+                        <p className="mt-1 text-xs text-red-600">{errors.punch_day_boundary_hour}</p>
+                    )}
+                </div>
             </div>
 
             {/* 所定時間 */}
@@ -2840,6 +2871,7 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
         salary_round_minutes: attendanceSettings.salary_round_minutes ?? '15',
         salary_round_rule: attendanceSettings.salary_round_rule ?? 'floor',
         punch_use_photo: attendanceSettings.punch_use_photo ?? false,
+        punch_day_boundary_hour: attendanceSettings.punch_day_boundary_hour ?? '5',
         work_start_time: attendanceSettings.work_start_time ?? '',
         work_end_time: attendanceSettings.work_end_time ?? '',
         work_hours_per_day: attendanceSettings.work_hours_per_day ?? '',

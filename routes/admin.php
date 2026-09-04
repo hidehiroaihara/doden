@@ -71,6 +71,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('attendances/create', [AttendanceController::class, 'create'])->name('attendances.create');
         Route::post('attendances', [AttendanceController::class, 'store'])->name('attendances.store');
         Route::get('attendances/export-csv', [AttendanceController::class, 'exportCsv'])->name('attendances.export-csv');
+        Route::get('attendances/{attendance}/form-data', [AttendanceController::class, 'formData'])->name('attendances.form-data');
         Route::get('attendances/{attendance}/edit', [AttendanceController::class, 'edit'])->name('attendances.edit');
         Route::put('attendances/{attendance}', [AttendanceController::class, 'update'])->name('attendances.update');
         Route::delete('attendances/{attendance}', [AttendanceController::class, 'destroy'])->name('attendances.destroy');
