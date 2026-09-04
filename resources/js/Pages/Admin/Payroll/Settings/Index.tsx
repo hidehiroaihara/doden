@@ -538,8 +538,16 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                             <span className="text-sm text-gray-500">〜</span>
                             <input type="time" disabled={!canWrite} className={`w-32 ${input}`}
                                 value={data.break_end_time} onChange={(e) => setData('break_end_time', e.target.value)} />
+                            {canWrite && (data.break_start_time || data.break_end_time) && (
+                                <button type="button" onClick={() => { setData('break_start_time', ''); setData('break_end_time', ''); }}
+                                    className="ml-1 inline-flex items-center gap-1.5 text-sm text-gray-500 transition hover:text-red-600">
+                                    <i className="fa-solid fa-xmark" />クリア
+                                </button>
+                            )}
                         </div>
-                        <p className="mt-1 text-xs text-gray-400">CSV出力時、この時間帯より前に退勤した場合は休憩を控除しません。</p>
+                        <p className="mt-1 text-xs text-gray-400">CSV出力時、この時間帯より前に退勤した場合は休憩を控除しません。空にすると自動休憩控除を行いません。</p>
+                        {errors.break_start_time && <p className="mt-1 text-xs text-red-600">{errors.break_start_time}</p>}
+                        {errors.break_end_time && <p className="mt-1 text-xs text-red-600">{errors.break_end_time}</p>}
                     </div>
                 </div>
             </div>
@@ -2866,8 +2874,8 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
     // 勤怠設定（旧「設定」ページ統合）
     const workForm = useForm({
         default_break_minutes: attendanceSettings.default_break_minutes ?? '60',
-        break_start_time: attendanceSettings.break_start_time ?? '12:00',
-        break_end_time: attendanceSettings.break_end_time ?? '13:00',
+        break_start_time: attendanceSettings.break_start_time ?? '',
+        break_end_time: attendanceSettings.break_end_time ?? '',
         salary_round_minutes: attendanceSettings.salary_round_minutes ?? '15',
         salary_round_rule: attendanceSettings.salary_round_rule ?? 'floor',
         punch_use_photo: attendanceSettings.punch_use_photo ?? false,

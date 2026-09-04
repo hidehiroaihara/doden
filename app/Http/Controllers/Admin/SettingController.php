@@ -34,8 +34,10 @@ class SettingController extends Controller
 
         $validated = $request->validate(array_merge([
             'default_break_minutes' => ['required', 'integer', 'min:0', 'max:480'],
-            'break_start_time' => ['required', 'date_format:H:i'],
-            'break_end_time' => ['required', 'date_format:H:i', 'after:break_start_time'],
+            // 規定休憩時間帯は任意。空にすると自動休憩控除を無効化する。
+            // 片方だけの入力を防ぐため、両方揃っている場合のみ after を検証する。
+            'break_start_time' => ['nullable', 'date_format:H:i', 'required_with:break_end_time'],
+            'break_end_time' => ['nullable', 'date_format:H:i', 'required_with:break_start_time', 'after:break_start_time'],
             'salary_round_minutes' => ['required', 'integer', 'min:1', 'max:60'],
             'salary_round_rule' => ['required', 'in:floor,round,ceil'],
             'month_closing_day' => ['nullable', 'integer', 'min:1', 'max:31'],
@@ -50,8 +52,8 @@ class SettingController extends Controller
         ], $workRules));
 
         Setting::setValue('default_break_minutes', $validated['default_break_minutes']);
-        Setting::setValue('break_start_time', $validated['break_start_time']);
-        Setting::setValue('break_end_time', $validated['break_end_time']);
+        Setting::setValue('break_start_time', ($validated['break_start_time'] ?? '') ?: null);
+        Setting::setValue('break_end_time', ($validated['break_end_time'] ?? '') ?: null);
         Setting::setValue('salary_round_minutes', $validated['salary_round_minutes']);
         Setting::setValue('salary_round_rule', $validated['salary_round_rule']);
 

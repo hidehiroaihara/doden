@@ -24,8 +24,8 @@ class BreakDeduction
      */
     public static function resolve(
         Attendance $attendance,
-        string $breakStartTime,
-        string $breakEndTime,
+        ?string $breakStartTime,
+        ?string $breakEndTime,
         int $defaultBreakMinutes,
     ): int {
         // 1. 休憩ボタン（完了済みレコード）が最優先
@@ -84,8 +84,8 @@ class BreakDeduction
         Carbon $clockIn,
         Carbon $clockOut,
         string $workDate,
-        string $breakStartTime,
-        string $breakEndTime,
+        ?string $breakStartTime,
+        ?string $breakEndTime,
         int $userBreakLimit,
         ?Collection $breaks = null,
     ): int {
@@ -112,10 +112,15 @@ class BreakDeduction
         Carbon $clockIn,
         Carbon $clockOut,
         string $workDate,
-        string $breakStartTime,
-        string $breakEndTime,
+        ?string $breakStartTime,
+        ?string $breakEndTime,
         int $userBreakLimit,
     ): int {
+        // 規定休憩時間帯が未設定なら自動控除しない
+        if (! $breakStartTime || ! $breakEndTime) {
+            return 0;
+        }
+
         $breakStart = Carbon::parse("{$workDate} {$breakStartTime}");
         $breakEnd   = Carbon::parse("{$workDate} {$breakEndTime}");
 

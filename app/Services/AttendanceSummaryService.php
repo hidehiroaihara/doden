@@ -352,8 +352,11 @@ class AttendanceSummaryService
         }
 
         // 打刻区間が無い場合は設定の休憩時間帯に配置（勤務内へクランプ）。
+        // 規定休憩時間帯が未設定なら勤務開始時刻を起点にする。
         $dateStr = $in->format('Y-m-d');
-        $bs = Carbon::parse("{$dateStr} {$settings['breakStartTime']}");
+        $bs = $settings['breakStartTime']
+            ? Carbon::parse("{$dateStr} {$settings['breakStartTime']}")
+            : $in->copy();
         if ($bs->lt($in)) {
             $bs = $in->copy();
         }

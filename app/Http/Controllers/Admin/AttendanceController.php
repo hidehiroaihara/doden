@@ -1015,13 +1015,18 @@ class AttendanceController extends Controller
         return "{$start} 〜 " . ($end ?: '未終了');
     }
 
-    private function resolveBreakMinutes(Attendance $attendance, string $breakStartTime, string $breakEndTime, int $defaultBreakMinutes): int
+    private function resolveBreakMinutes(Attendance $attendance, ?string $breakStartTime, ?string $breakEndTime, int $defaultBreakMinutes): int
     {
         if ($attendance->break_minutes !== null) {
             return $attendance->break_minutes;
         }
 
         if (!$attendance->clock_in_at || !$attendance->clock_out_at) {
+            return 0;
+        }
+
+        // 規定休憩時間帯が未設定なら自動控除しない
+        if (!$breakStartTime || !$breakEndTime) {
             return 0;
         }
 
@@ -1207,8 +1212,8 @@ class AttendanceController extends Controller
      */
     private function calcCsvSummary(
         $attendances,
-        string $breakStartTime,
-        string $breakEndTime,
+        ?string $breakStartTime,
+        ?string $breakEndTime,
         int $userBreakDefault,
         int $salaryRoundMinutes,
         string $salaryRoundRule,
