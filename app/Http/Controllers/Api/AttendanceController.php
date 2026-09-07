@@ -42,23 +42,16 @@ class AttendanceController extends Controller
         ]);
 
         $user = User::findOrFail($request->input('user_id'));
-        $businessDate = PunchBusinessDate::date();
 
+        // 未退勤のシフトが1件でもあれば新規出勤は不可（先に退勤が必要）。
+        // 退勤済みであれば、同一営業日・別店舗でも次のシフトを出勤できる。
         if (Attendance::findOpenForUser($user->id)) {
             return response()->json([
                 'message' => '未退勤の打刻があります。先に退勤してください',
             ], 409);
         }
 
-        $existing = Attendance::where('user_id', $user->id)
-            ->where('work_date', $businessDate)
-            ->first();
-
-        if ($existing) {
-            return response()->json([
-                'message' => '本日はすでに出勤打刻済みです',
-            ], 409);
-        }
+        $businessDate = $this->resolveWorkDateForClockIn($user->id);
 
         // 打刻した店舗を勤怠へスナップショット保存する。
         // 店舗別画面からの打刻(department_id)を優先し、所属外の店舗は拒否する。
@@ -207,6 +200,29 @@ class AttendanceController extends Controller
             'attendance' => $attendance->fresh()->load('attendanceBreaks'),
             'break'      => $openBreak->fresh(),
         ]);
+    }
+
+    /**
+     * 出勤打刻の work_date（営業日）を決定する。
+     *
+     * 通常は PunchBusinessDate::date()（境界時刻前は前日扱い）を使う。
+     * ただし早朝（境界時刻前）で、前営業日のシフトがすべて退勤済みの場合は、
+     * 前日6-10時勤務→翌2時の新規出勤が同一 work_date に潰れないよう暦日を用いる。
+     * これにより「前の日に勤務済み → 早朝に別シフトで出勤」が可能になる。
+     */
+    private function resolveWorkDateForClockIn(int $userId): string
+    {
+        $businessDate = PunchBusinessDate::date();
+        $calendarDate = Carbon::now()->toDateString();
+
+        // 境界時刻前（営業日=前日）かつ、その前営業日に未退勤シフトが無い＝
+        // 継続中の夜勤ではなく新規の早朝出勤とみなせる場合は、暦日を採用する。
+        if ($calendarDate !== $businessDate
+            && ! Attendance::hasOpenShiftOnBusinessDate($userId, $businessDate)) {
+            return $calendarDate;
+        }
+
+        return $businessDate;
     }
 
     /**

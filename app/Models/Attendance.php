@@ -82,18 +82,26 @@ class Attendance extends Model
             ->first();
     }
 
-    /** 打刻画面で表示・操作対象となる勤怠（未退勤があれば日跨ぎでもそれを優先）。 */
+    /** 指定営業日に未退勤の勤怠があるか（複数シフト時の出勤可否判定用）。 */
+    public static function hasOpenShiftOnBusinessDate(int $userId, string $businessDate): bool
+    {
+        return static::query()
+            ->where('user_id', $userId)
+            ->where('work_date', $businessDate)
+            ->whereNotNull('clock_in_at')
+            ->whereNull('clock_out_at')
+            ->exists();
+    }
+
+    /**
+     * 打刻画面で表示・操作対象となる勤怠。
+     * 未退勤（出勤中）のシフトがあればそれを返し、なければ null。
+     * 退勤済みのレコードは返さない（同一営業日でも次のシフトを出勤できるようにするため）。
+     */
     public static function findActiveForPunch(int $userId): ?self
     {
         $open = static::findOpenForUser($userId);
-        if ($open) {
-            return $open->load('attendanceBreaks');
-        }
 
-        return static::query()
-            ->with('attendanceBreaks')
-            ->where('user_id', $userId)
-            ->where('work_date', PunchBusinessDate::date())
-            ->first();
+        return $open?->load('attendanceBreaks');
     }
 }

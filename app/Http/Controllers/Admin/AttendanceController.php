@@ -229,7 +229,8 @@ class AttendanceController extends Controller
                 $outNextDay = Carbon::parse($a->clock_out_at)->format('Y-m-d') > $date;
             }
 
-            $byUser[$a->user_id][$date] = [
+            // 同一日に複数シフト（昼夜の別店舗勤務など）があり得るため配列で保持する。
+            $byUser[$a->user_id][$date][] = [
                 'in' => $fmtTime($a->clock_in_at),
                 'out' => $fmtTime($a->clock_out_at),
                 'out_next_day' => $outNextDay,
@@ -243,11 +244,15 @@ class AttendanceController extends Controller
             $cells = [];
             $workDays = 0;
             foreach ($days as $day) {
-                $rec = $byUser[$u->id][$day['date']] ?? null;
-                if ($rec && $rec['in']) {
-                    $workDays++;
+                // 各日は打刻シフトの配列（複数シフト対応）。未打刻の日は null。
+                $recs = $byUser[$u->id][$day['date']] ?? null;
+                if ($recs) {
+                    // その日に1件でも出勤打刻があれば出勤日数に加算（複数シフトでも1日=1日）。
+                    if (collect($recs)->contains(fn ($r) => ! empty($r['in']))) {
+                        $workDays++;
+                    }
                 }
-                $cells[$day['date']] = $rec;
+                $cells[$day['date']] = $recs;
             }
 
             return [
@@ -371,12 +376,17 @@ class AttendanceController extends Controller
         });
         $times = array_merge($times, $validator->validate());
 
-        $existing = Attendance::where('user_id', $validated['user_id'])
-            ->where('work_date', $workDate)
-            ->first();
+        // 同一日に昼夜の別店舗勤務など複数シフトがあり得るため、同日重複でも登録を許可する。
+        // ただし出勤時刻が未入力（＝実質空レコード）の重複登録は防ぐ。
+        if (empty($times['clock_in_at'])) {
+            $existing = Attendance::where('user_id', $validated['user_id'])
+                ->where('work_date', $workDate)
+                ->whereNull('clock_in_at')
+                ->first();
 
-        if ($existing) {
-            return back()->withErrors(['work_date' => 'この日付の打刻は既に登録されています。編集画面から修正してください。']);
+            if ($existing) {
+                return back()->withErrors(['work_date' => 'この日付の空の打刻が既に登録されています。編集画面から修正してください。']);
+            }
         }
 
         $attendance = Attendance::create([
@@ -752,8 +762,8 @@ class AttendanceController extends Controller
             }
         }
 
-        // 打刻データを日付キーでマップ化
-        $attendanceMap = $attendances->keyBy(fn($a) => $a->work_date->format('Y-m-d'));
+        // 打刻データを日付キーでグループ化（同一日に複数シフトがあり得る）
+        $attendanceMap = $attendances->groupBy(fn($a) => $a->work_date->format('Y-m-d'));
 
         // ユーザー情報（個別時）
         $csvUser = $isUserSpecific ? User::with('department')->find($userId) : null;
@@ -932,10 +942,16 @@ class AttendanceController extends Controller
             };
 
             if (!empty($calendarDays)) {
-                // ユーザー個別: カレンダー全日を出力
+                // ユーザー個別: カレンダー全日を出力（同一日に複数シフトがあれば各シフトを1行ずつ出力）
                 foreach ($calendarDays as $d) {
-                    $a = $attendanceMap->get($d);
-                    fputcsv($handle, $buildRow($a, $d));
+                    $group = $attendanceMap->get($d);
+                    if ($group && $group->count() > 0) {
+                        foreach ($group as $a) {
+                            fputcsv($handle, $buildRow($a, $d));
+                        }
+                    } else {
+                        fputcsv($handle, $buildRow(null, $d));
+                    }
                 }
             } else {
                 // 全社: 打刻レコードのみ

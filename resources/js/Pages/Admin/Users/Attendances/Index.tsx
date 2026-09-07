@@ -493,13 +493,26 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
 
     const fmtHM = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
 
-    // 打刻データを日付キーでマップ化
+    // 打刻データを日付キーでマップ化（同一日に複数シフトがあり得るため配列で保持）
     const attendanceMap = useMemo(() => {
-        const map = new Map<string, AttendanceItem>();
+        const map = new Map<string, AttendanceItem[]>();
         for (const a of attendances) {
             const d = new Date(a.work_date);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            map.set(key, a);
+            const list = map.get(key);
+            if (list) {
+                list.push(a);
+            } else {
+                map.set(key, [a]);
+            }
+        }
+        // 各日の中では出勤時刻の早い順に並べる
+        for (const list of map.values()) {
+            list.sort((x, y) => {
+                const tx = x.clock_in_at ? new Date(x.clock_in_at).getTime() : 0;
+                const ty = y.clock_in_at ? new Date(y.clock_in_at).getTime() : 0;
+                return tx - ty;
+            });
         }
         return map;
     }, [attendances]);
@@ -591,11 +604,11 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
         return d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
     };
 
-    // 表示する行リスト: カレンダーか打刻データのみか
-    const displayDays = calendarDays || attendances.map(a => {
+    // 表示する行リスト: カレンダーか打刻データのみか（打刻のみ表示時は日付を重複排除）
+    const displayDays = calendarDays || Array.from(new Set(attendances.map(a => {
         const d = new Date(a.work_date);
         return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    }).reverse();
+    }))).reverse();
 
     const colSpan = (hasSchedule ? 11 : 10) - (canWrite ? 0 : 1);
 
@@ -722,8 +735,13 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                         <td colSpan={colSpan} className="px-4 py-8 text-center text-gray-400">データがありません</td>
                                     </tr>
                                 )}
-                                {displayDays.map((dateStr) => {
-                                    const a = attendanceMap.get(dateStr) ?? null;
+                                {displayDays.flatMap((dateStr) => {
+                                    const records = attendanceMap.get(dateStr) ?? [];
+                                    // その日に打刻が無ければ空行を1行、複数あればシフトごとに1行ずつ描画する。
+                                    const rows: (AttendanceItem | null)[] = records.length > 0 ? records : [null];
+                                    const multi = records.length > 1;
+
+                                    return rows.map((a, shiftIdx) => {
                                     const missing = isMissingClockOut(a);
                                     const net = calcNetMinutes(a);
                                     const rounded = calcRoundedMinutes(a);
@@ -734,9 +752,10 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                     const todayHighlight = isToday(dateStr) ? 'bg-teal-50/40' : '';
                                     const rowBg = missing ? 'bg-red-50/60' : (todayHighlight || weekdayBg);
                                     const hasRecord = a !== null;
+                                    const rowKey = a ? `att-${a.id}` : `empty-${dateStr}`;
 
                                     return (
-                                        <tr key={dateStr} className={`transition hover:bg-gray-50/50 ${rowBg}`}>
+                                        <tr key={rowKey} className={`transition hover:bg-gray-50/50 ${rowBg}`}>
                                             {/* 日付 */}
                                             <td className="px-3 py-1.5 whitespace-nowrap">
                                                 <span className={`font-medium ${isToday(dateStr) ? 'text-teal-700' : 'text-gray-800'}`}>
@@ -745,6 +764,11 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                                 <span className={`ml-1 text-xs ${getWeekdayColor(dateStr)}`}>
                                                     ({getWeekday(dateStr)})
                                                 </span>
+                                                {multi && (
+                                                    <span className="ml-1 inline-block rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-600" title="同日複数シフト">
+                                                        {shiftIdx + 1}
+                                                    </span>
+                                                )}
                                             </td>
                                             {/* 打刻店舗 */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">
@@ -880,6 +904,7 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                             )}
                                         </tr>
                                     );
+                                    });
                                 })}
                             </tbody>
                         </table>

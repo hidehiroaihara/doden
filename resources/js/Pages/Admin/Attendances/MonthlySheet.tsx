@@ -35,7 +35,8 @@ interface Row {
     user_id: number;
     user_name: string;
     department: string | null;
-    cells: Record<string, DayCell | null>;
+    // 各日は打刻シフトの配列（複数シフト対応）。未打刻の日は null。
+    cells: Record<string, DayCell[] | null>;
     work_days: number;
 }
 
@@ -348,48 +349,66 @@ export default function MonthlySheet({
                                                 <span className="text-[10px] text-gray-400">日</span>
                                             </td>
                                             {days.map((col) => {
-                                                const cell = row.cells[col.date];
+                                                const shifts = row.cells[col.date] ?? [];
+                                                const hasShifts = shifts.length > 0;
                                                 const clickable = canWrite;
                                                 return (
                                                     <td
                                                         key={col.date}
                                                         className={`border-b border-l border-gray-100 px-1.5 py-1 text-center align-middle ${
                                                             col.is_weekend ? 'bg-gray-50/60' : ''
-                                                        } ${clickable ? 'cursor-pointer hover:bg-teal-50/80' : ''}`}
-                                                        onClick={() => clickable && openCell(row, col.date, cell)}
-                                                        title={
-                                                            clickable
-                                                                ? cell?.in
-                                                                    ? 'クリックで打刻を編集'
-                                                                    : 'クリックで打刻を登録'
-                                                                : undefined
-                                                        }
+                                                        }`}
                                                     >
-                                                        {cell && cell.in ? (
-                                                            <div className="leading-tight">
-                                                                <div className="font-mono text-[11px] text-green-600">
-                                                                    {cell.in}
-                                                                </div>
-                                                                <div
-                                                                    className={`font-mono text-[11px] ${
-                                                                        cell.out
-                                                                            ? 'text-blue-600'
-                                                                            : 'text-amber-500'
-                                                                    }`}
-                                                                >
-                                                                    {formatOutTime(cell)}
-                                                                </div>
-                                                                {cell.store && (
+                                                        {hasShifts ? (
+                                                            <div className="flex flex-col items-stretch gap-0.5">
+                                                                {shifts.map((cell, idx) => (
                                                                     <div
-                                                                        className="truncate text-[10px] text-gray-400"
-                                                                        title={cell.store}
+                                                                        key={cell.attendance_id ?? idx}
+                                                                        className={`leading-tight rounded ${clickable ? 'cursor-pointer hover:bg-teal-50/80' : ''} ${idx > 0 ? 'border-t border-dashed border-gray-200 pt-0.5' : ''}`}
+                                                                        onClick={() => clickable && openCell(row, col.date, cell)}
+                                                                        title={clickable ? 'クリックで打刻を編集' : undefined}
                                                                     >
-                                                                        {cell.store}
+                                                                        <div className="font-mono text-[11px] text-green-600">
+                                                                            {cell.in ?? '--:--'}
+                                                                        </div>
+                                                                        <div
+                                                                            className={`font-mono text-[11px] ${
+                                                                                cell.out
+                                                                                    ? 'text-blue-600'
+                                                                                    : 'text-amber-500'
+                                                                            }`}
+                                                                        >
+                                                                            {formatOutTime(cell)}
+                                                                        </div>
+                                                                        {cell.store && (
+                                                                            <div
+                                                                                className="truncate text-[10px] text-gray-400"
+                                                                                title={cell.store}
+                                                                            >
+                                                                                {cell.store}
+                                                                            </div>
+                                                                        )}
                                                                     </div>
+                                                                ))}
+                                                                {clickable && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => openCell(row, col.date, null)}
+                                                                        className="mt-0.5 text-[10px] text-gray-300 transition hover:text-teal-500"
+                                                                        title="この日にシフトを追加"
+                                                                    >
+                                                                        <i className="fa-solid fa-plus" />
+                                                                    </button>
                                                                 )}
                                                             </div>
                                                         ) : (
-                                                            <span className="text-gray-200">・</span>
+                                                            <div
+                                                                className={`${clickable ? 'cursor-pointer hover:bg-teal-50/80' : ''}`}
+                                                                onClick={() => clickable && openCell(row, col.date, null)}
+                                                                title={clickable ? 'クリックで打刻を登録' : undefined}
+                                                            >
+                                                                <span className="text-gray-200">・</span>
+                                                            </div>
                                                         )}
                                                     </td>
                                                 );
