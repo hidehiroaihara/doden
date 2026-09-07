@@ -13,6 +13,7 @@ class Attendance extends Model
     protected $fillable = [
         'user_id',
         'department_id',
+        'clock_out_department_id',
         'work_date',
         'clock_in_at',
         'clock_in_photo_path',
@@ -40,6 +41,12 @@ class Attendance extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    /** 退勤打刻時の店舗（出勤店舗と異なる場合に記録される）。 */
+    public function clockOutDepartment(): BelongsTo
+    {
+        return $this->belongsTo(Department::class, 'clock_out_department_id');
     }
 
     public function editLogs(): HasMany

@@ -83,6 +83,7 @@ class AttendanceController extends Controller
     {
         $request->validate([
             'user_id' => ['required', 'exists:users,id'],
+            'department_id' => ['nullable', 'exists:departments,id'],
             'photo' => [$this->photoRule(), 'string'],
         ]);
 
@@ -110,10 +111,16 @@ class AttendanceController extends Controller
 
         $photoPath = $this->storePhoto($request->input('photo'), 'clock_out');
 
+        // 退勤した店舗をスナップショット保存する（出勤店舗と別店舗で退勤した場合に両方残す）。
+        // 店舗指定が無い場合は出勤店舗をそのまま退勤店舗として記録する。
+        $clockOutDepartmentId = $this->resolvePunchDepartmentId($user, $request->input('department_id'))
+            ?? $attendance->department_id;
+
         $attendance->update([
             'clock_out_at' => Carbon::now(),
             'clock_out_photo_path' => $photoPath,
             'clock_out_ip' => $request->ip(),
+            'clock_out_department_id' => $clockOutDepartmentId,
         ]);
 
         if ($user->chatwork_room_id) {

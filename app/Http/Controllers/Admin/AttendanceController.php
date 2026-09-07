@@ -26,7 +26,7 @@ class AttendanceController extends Controller
     {
         [$dateFrom, $dateTo, $month, $year] = $this->resolveDateFilters($request, true);
 
-        $query = Attendance::with(['user', 'attendanceBreaks', 'department'])->where('user_id', $user->id)->orderBy('work_date');
+        $query = Attendance::with(['user', 'attendanceBreaks', 'department', 'clockOutDepartment'])->where('user_id', $user->id)->orderBy('work_date');
         if ($dateFrom) $query->where('work_date', '>=', $dateFrom);
         if ($dateTo) $query->where('work_date', '<=', $dateTo);
 
@@ -79,40 +79,67 @@ class AttendanceController extends Controller
         $totalEarlyMinutes = 0;
         $missingClockOut = 0;
 
+        /** @var array<string, list<\App\Models\Attendance>> $byWorkDate */
+        $byWorkDate = [];
         foreach ($allAttendances as $att) {
-            if ($att->clock_in_at && !$att->clock_out_at && $att->work_date->lt(Carbon::today())) {
+            if ($att->clock_in_at && ! $att->clock_out_at && $att->work_date->lt(Carbon::today())) {
                 $missingClockOut++;
                 continue;
             }
-            if (!$att->clock_in_at || !$att->clock_out_at) continue;
+            if (! $att->clock_in_at || ! $att->clock_out_at) {
+                continue;
+            }
+            $byWorkDate[$att->work_date->format('Y-m-d')][] = $att;
+        }
+
+        foreach ($byWorkDate as $dateStr => $dayAttendances) {
+            usort($dayAttendances, fn ($a, $b) => $a->clock_in_at <=> $b->clock_in_at);
 
             $workDays++;
-            $breakMin = $att->computed_break_minutes ?? 0;
-            $totalBreakMinutes += $breakMin;
-            $clockIn = Carbon::parse($att->clock_in_at);
-            $clockOut = Carbon::parse($att->clock_out_at);
-            $grossMin = $clockIn->diffInMinutes($clockOut);
-            $netMin = max(0, $grossMin - $breakMin);
-            $totalWorkMinutes += $netMin;
-            $totalRoundedMinutes += $this->roundMinutes($netMin, $salaryRoundMinutes, $salaryRoundRule);
+            $dayNet = 0;
+            $dayBreak = 0;
+            $firstClockIn = null;
+            $lastClockOut = null;
 
-            if ($hasSchedule) {
-                $dateStr = $att->work_date->format('Y-m-d');
+            foreach ($dayAttendances as $att) {
+                $breakMin = $att->computed_break_minutes ?? 0;
+                $dayBreak += $breakMin;
+                $clockIn = Carbon::parse($att->clock_in_at);
+                $clockOut = Carbon::parse($att->clock_out_at);
+                $dayNet += max(0, $clockIn->diffInMinutes($clockOut) - $breakMin);
+                $totalRoundedMinutes += $this->roundMinutes(
+                    max(0, $clockIn->diffInMinutes($clockOut) - $breakMin),
+                    $salaryRoundMinutes,
+                    $salaryRoundRule,
+                );
+
+                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
+                    $firstClockIn = $clockIn;
+                }
+                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
+                    $lastClockOut = $clockOut;
+                }
+            }
+
+            $totalBreakMinutes += $dayBreak;
+            $totalWorkMinutes += $dayNet;
+
+            if ($hasSchedule && $firstClockIn && $lastClockOut) {
                 $schedStart = Carbon::parse("{$dateStr} {$workStartTime}");
                 $schedEnd = Carbon::parse("{$dateStr} {$workEndTime}");
                 $scheduledMin = (int) $workHoursPerDay;
                 $totalScheduledMinutes += $scheduledMin;
 
-                if ($clockIn->gt($schedStart)) {
+                if ($firstClockIn->gt($schedStart)) {
                     $lateCount++;
-                    $totalLateMinutes += $schedStart->diffInMinutes($clockIn);
+                    $totalLateMinutes += $schedStart->diffInMinutes($firstClockIn);
                 }
-                if ($clockOut->lt($schedEnd)) {
+                if ($lastClockOut->lt($schedEnd)) {
                     $earlyLeaveCount++;
-                    $totalEarlyMinutes += $clockOut->diffInMinutes($schedEnd);
+                    $totalEarlyMinutes += $lastClockOut->diffInMinutes($schedEnd);
                 }
-                if ($netMin > $scheduledMin) {
-                    $totalOvertimeMinutes += $netMin - $scheduledMin;
+                if ($dayNet > $scheduledMin) {
+                    $totalOvertimeMinutes += $dayNet - $scheduledMin;
                 }
             }
         }
@@ -197,10 +224,10 @@ class AttendanceController extends Controller
 
         $users = $userQuery->orderByEmployeeNo()->get(['users.id', 'users.name', 'users.department_id']);
 
-        $attendances = Attendance::with('department')
+        $attendances = Attendance::with(['department', 'clockOutDepartment'])
             ->whereBetween('work_date', [$from, $to])
             ->whereIn('user_id', $users->pluck('id'))
-            ->get(['id', 'user_id', 'department_id', 'work_date', 'clock_in_at', 'clock_out_at']);
+            ->get(['id', 'user_id', 'department_id', 'clock_out_department_id', 'work_date', 'clock_in_at', 'clock_out_at']);
 
         $dow = ['日', '月', '火', '水', '木', '金', '土'];
         $days = [];
@@ -229,12 +256,18 @@ class AttendanceController extends Controller
                 $outNextDay = Carbon::parse($a->clock_out_at)->format('Y-m-d') > $date;
             }
 
+            // 出勤店舗と退勤店舗が異なる場合のみ退勤店舗名を持たせる（同一なら null）。
+            $outStore = ($a->clock_out_department_id && $a->clock_out_department_id !== $a->department_id)
+                ? $a->clockOutDepartment?->name
+                : null;
+
             // 同一日に複数シフト（昼夜の別店舗勤務など）があり得るため配列で保持する。
             $byUser[$a->user_id][$date][] = [
                 'in' => $fmtTime($a->clock_in_at),
                 'out' => $fmtTime($a->clock_out_at),
                 'out_next_day' => $outNextDay,
                 'store' => $a->department?->name,
+                'out_store' => $outStore,
                 'attendance_id' => $a->id,
                 'missing_out' => (bool) ($a->clock_in_at && ! $a->clock_out_at && Carbon::parse($date)->lt(Carbon::today())),
             ];
@@ -282,7 +315,7 @@ class AttendanceController extends Controller
     public function index(Request $request)
     {
         $today = Carbon::today()->toDateString();
-        $query = Attendance::with(['user', 'attendanceBreaks', 'department']);
+        $query = Attendance::with(['user', 'attendanceBreaks', 'department', 'clockOutDepartment']);
 
         if ($request->filled('user_id')) {
             $query->where('user_id', $request->input('user_id'));
@@ -728,7 +761,7 @@ class AttendanceController extends Controller
         $userId = $request->input('user_id');
         $isUserSpecific = !empty($userId);
 
-        $query = Attendance::with(['user.department', 'department', 'attendanceBreaks']);
+        $query = Attendance::with(['user.department', 'department', 'clockOutDepartment', 'attendanceBreaks']);
         if ($isUserSpecific) {
             $query->where('user_id', $userId);
         }
@@ -773,7 +806,7 @@ class AttendanceController extends Controller
         // 最大休憩回数を算出（動的列数）
         $maxBreaks = $attendances->max(fn($a) => $a->attendanceBreaks->count()) ?? 0;
 
-        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '打刻店舗', '出勤時刻', '退勤時刻', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
+        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '出勤店舗', '退勤店舗', '出勤時刻', '退勤時刻', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
         if ($hasSchedule) {
             $headers[] = '遅刻';
             $headers[] = '早退';
@@ -907,12 +940,18 @@ class AttendanceController extends Controller
                     $note = '退勤忘れ';
                 }
 
+                // 退勤店舗は出勤店舗と異なる場合のみ表示（同一・未退勤なら空欄）
+                $outStoreName = ($a && $a->clock_out_department_id && $a->clock_out_department_id !== $a->department_id)
+                    ? ($a->clockOutDepartment?->name ?? '')
+                    : '';
+
                 $row = [
                     $userName,
                     $cusNo,
                     $dayCarbon->format('Y-m-d'),
                     $weekdays[$dayCarbon->dayOfWeek] ?? '',
                     $a?->department?->name ?? '',
+                    $outStoreName,
                     $a?->clock_in_at?->format('H:i') ?? '',
                     $a?->clock_out_at?->format('H:i') ?? '',
                     ($a && $a->clock_in_at && $a->clock_out_at) ? $breakMin : '',
@@ -1249,50 +1288,72 @@ class AttendanceController extends Controller
         $totalEarlyMinutes   = 0;
         $missingClockOut     = 0;
 
+        /** @var array<string, list<\App\Models\Attendance>> $byWorkDate */
+        $byWorkDate = [];
         foreach ($attendances as $att) {
-            if ($att->clock_in_at && !$att->clock_out_at && $att->work_date->lt(Carbon::today())) {
+            if ($att->clock_in_at && ! $att->clock_out_at && $att->work_date->lt(Carbon::today())) {
                 $missingClockOut++;
                 continue;
             }
-            if (!$att->clock_in_at || !$att->clock_out_at) {
+            if (! $att->clock_in_at || ! $att->clock_out_at) {
                 continue;
             }
+            $byWorkDate[$att->work_date->format('Y-m-d')][] = $att;
+        }
+
+        foreach ($byWorkDate as $dateStr => $dayAttendances) {
+            usort($dayAttendances, fn ($a, $b) => $a->clock_in_at <=> $b->clock_in_at);
 
             $workDays++;
-            $clockIn  = Carbon::parse($att->clock_in_at);
-            $clockOut = Carbon::parse($att->clock_out_at);
-            $breakMin = BreakDeduction::resolveWithLimit(
-                $att->break_minutes,
-                $clockIn,
-                $clockOut,
-                $att->work_date->format('Y-m-d'),
-                $breakStartTime,
-                $breakEndTime,
-                $userBreakDefault,
-                $att->attendanceBreaks ?? new Collection(),
-            );
-            $totalBreakMinutes += $breakMin;
-            $grossMin = $clockIn->diffInMinutes($clockOut);
-            $netMin   = max(0, $grossMin - $breakMin);
-            $totalWorkMinutes    += $netMin;
-            $totalRoundedMinutes += $this->roundMinutes($netMin, $salaryRoundMinutes, $salaryRoundRule);
+            $dayNet = 0;
+            $dayBreak = 0;
+            $firstClockIn = null;
+            $lastClockOut = null;
 
-            if ($hasSchedule) {
-                $dateStr   = $att->work_date->format('Y-m-d');
+            foreach ($dayAttendances as $att) {
+                $clockIn = Carbon::parse($att->clock_in_at);
+                $clockOut = Carbon::parse($att->clock_out_at);
+                $breakMin = BreakDeduction::resolveWithLimit(
+                    $att->break_minutes,
+                    $clockIn,
+                    $clockOut,
+                    $dateStr,
+                    $breakStartTime,
+                    $breakEndTime,
+                    $userBreakDefault,
+                    $att->attendanceBreaks ?? new Collection(),
+                );
+                $netMin = max(0, $clockIn->diffInMinutes($clockOut) - $breakMin);
+                $dayNet += $netMin;
+                $dayBreak += $breakMin;
+                $totalRoundedMinutes += $this->roundMinutes($netMin, $salaryRoundMinutes, $salaryRoundRule);
+
+                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
+                    $firstClockIn = $clockIn;
+                }
+                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
+                    $lastClockOut = $clockOut;
+                }
+            }
+
+            $totalBreakMinutes += $dayBreak;
+            $totalWorkMinutes += $dayNet;
+
+            if ($hasSchedule && $firstClockIn && $lastClockOut) {
                 $schedStart = Carbon::parse("{$dateStr} {$workStartTime}");
-                $schedEnd   = Carbon::parse("{$dateStr} {$workEndTime}");
+                $schedEnd = Carbon::parse("{$dateStr} {$workEndTime}");
                 $scheduledMin = (int) $workHoursPerDay;
 
-                if ($clockIn->gt($schedStart)) {
+                if ($firstClockIn->gt($schedStart)) {
                     $lateCount++;
-                    $totalLateMinutes += $schedStart->diffInMinutes($clockIn);
+                    $totalLateMinutes += $schedStart->diffInMinutes($firstClockIn);
                 }
-                if ($clockOut->lt($schedEnd)) {
+                if ($lastClockOut->lt($schedEnd)) {
                     $earlyLeaveCount++;
-                    $totalEarlyMinutes += $clockOut->diffInMinutes($schedEnd);
+                    $totalEarlyMinutes += $lastClockOut->diffInMinutes($schedEnd);
                 }
-                if ($netMin > $scheduledMin) {
-                    $totalOvertimeMinutes += $netMin - $scheduledMin;
+                if ($dayNet > $scheduledMin) {
+                    $totalOvertimeMinutes += $dayNet - $scheduledMin;
                 }
             }
         }

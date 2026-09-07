@@ -24,6 +24,7 @@ interface AttendanceItem {
     break_minutes: number | null;
     attendance_breaks?: BreakRecord[];
     department?: { id: number; name: string } | null;
+    clock_out_department?: { id: number; name: string } | null;
     user: { id: number; name: string };
 }
 
@@ -477,6 +478,12 @@ export default function AttendancesIndex({ attendances, users, filters }: Props)
                                                 </td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
                                                     {a.department?.name ?? '—'}
+                                                    {a.clock_out_department?.name && a.clock_out_department.name !== a.department?.name && (
+                                                        <span className="text-indigo-500">
+                                                            <i className="fa-solid fa-arrow-right-long mx-1 text-[10px] text-gray-400" />
+                                                            {a.clock_out_department.name}
+                                                        </span>
+                                                    )}
                                                 </td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm text-green-600 font-medium">{formatTime(a.clock_in_at)}</td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm font-medium">

@@ -76,6 +76,64 @@ class MultiShiftPunchTest extends TestCase
         Carbon::setTestNow();
     }
 
+    /** 出勤店舗と別の店舗で退勤した場合、両方の店舗が保存される。 */
+    public function test_clock_out_department_is_saved_when_different_store(): void
+    {
+        Setting::setValue('punch_use_photo', '0');
+        Setting::setValue('punch_day_boundary_hour', '5');
+        $terminal = $this->terminal();
+
+        $storeA = Department::create(['name' => 'A店']);
+        $storeB = Department::create(['name' => 'B店']);
+        $user = User::factory()->create(['department_id' => $storeA->id]);
+        $user->departments()->attach([$storeA->id, $storeB->id]);
+
+        // A店で出勤
+        Carbon::setTestNow(Carbon::today()->setTime(9, 0));
+        $this->postJson('/api/attendance/clock-in', $this->punchParams($user, $terminal, [
+            'department_id' => $storeA->id,
+        ]))->assertOk();
+
+        // B店で退勤（勤務中に別店舗へ移動）
+        Carbon::setTestNow(Carbon::today()->setTime(17, 0));
+        $this->postJson('/api/attendance/clock-out', $this->punchParams($user, $terminal, [
+            'department_id' => $storeB->id,
+        ]))->assertOk();
+
+        $att = Attendance::where('user_id', $user->id)->first();
+        $this->assertSame($storeA->id, (int) $att->department_id, '出勤店舗はA店');
+        $this->assertSame($storeB->id, (int) $att->clock_out_department_id, '退勤店舗はB店');
+
+        Carbon::setTestNow();
+    }
+
+    /** 退勤時に店舗指定が無ければ、退勤店舗は出勤店舗と同じになる。 */
+    public function test_clock_out_department_defaults_to_clock_in_store(): void
+    {
+        Setting::setValue('punch_use_photo', '0');
+        Setting::setValue('punch_day_boundary_hour', '5');
+        $terminal = $this->terminal();
+
+        $storeA = Department::create(['name' => 'A店']);
+        $user = User::factory()->create(['department_id' => $storeA->id]);
+        $user->departments()->attach([$storeA->id]);
+
+        Carbon::setTestNow(Carbon::today()->setTime(9, 0));
+        $this->postJson('/api/attendance/clock-in', $this->punchParams($user, $terminal, [
+            'department_id' => $storeA->id,
+        ]))->assertOk();
+
+        // 退勤時は店舗指定なし
+        Carbon::setTestNow(Carbon::today()->setTime(17, 0));
+        $this->postJson('/api/attendance/clock-out', $this->punchParams($user, $terminal))->assertOk();
+
+        $att = Attendance::where('user_id', $user->id)->first();
+        $this->assertSame($storeA->id, (int) $att->department_id);
+        $this->assertSame($storeA->id, (int) $att->clock_out_department_id);
+
+        Carbon::setTestNow();
+    }
+
     /** 未退勤のシフトがある間は2件目の出勤を拒否する。 */
     public function test_second_clock_in_blocked_while_open_shift_exists(): void
     {

@@ -19,6 +19,8 @@ interface DayCell {
     out: string | null;
     out_next_day?: boolean;
     store?: string | null;
+    /** 退勤店舗（出勤店舗と異なる場合のみ設定される）。 */
+    out_store?: string | null;
     attendance_id?: number;
     missing_out: boolean;
 }
@@ -383,9 +385,12 @@ export default function MonthlySheet({
                                                                         {cell.store && (
                                                                             <div
                                                                                 className="truncate text-[10px] text-gray-400"
-                                                                                title={cell.store}
+                                                                                title={cell.out_store ? `${cell.store} → ${cell.out_store}` : cell.store}
                                                                             >
                                                                                 {cell.store}
+                                                                                {cell.out_store && (
+                                                                                    <span className="text-indigo-400">→{cell.out_store}</span>
+                                                                                )}
                                                                             </div>
                                                                         )}
                                                                     </div>

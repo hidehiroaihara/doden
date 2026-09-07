@@ -148,8 +148,9 @@ export default function Punch({ user, store, serverTime, usePhoto = false }: Pro
         try {
             const res = await axios.post(`/api/attendance/${type}`, {
                 user_id: user.id,
-                // 出勤時は打刻した店舗を記録する（店舗別画面から遷移した場合のみ）。
-                department_id: type === 'clock-in' ? store?.id ?? null : undefined,
+                // 出勤・退勤ともに打刻した店舗を記録する（店舗別画面から遷移した場合のみ）。
+                // これにより出勤店舗と退勤店舗が異なる場合も両方を残せる。
+                department_id: store?.id ?? null,
                 photo: photo ?? undefined,
             });
             const att: Attendance = res.data.attendance;

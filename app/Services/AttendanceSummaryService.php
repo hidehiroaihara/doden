@@ -95,127 +95,157 @@ class AttendanceSummaryService
         $totals['user_id'] = $user->id;
         $totals['user_name'] = $user->name;
 
+        // 同一 work_date の複数シフトは1日として集計する（出勤日数・法定外・所定超過は日合計で判定）。
+        /** @var array<string, list<Attendance>> $byWorkDate */
+        $byWorkDate = [];
         foreach ($attendances as $att) {
-            // 退勤忘れ(過去日で出勤のみ)
             if ($att->clock_in_at && ! $att->clock_out_at && $att->work_date->lt(Carbon::today())) {
                 $totals['missing_clock_out']++;
                 continue;
             }
-
             if (! $att->clock_in_at || ! $att->clock_out_at) {
                 continue;
             }
+            $key = $att->work_date->format('Y-m-d');
+            $byWorkDate[$key][] = $att;
+        }
 
+        $holidayThreshold = $settings['hasSchedule']
+            ? (int) $settings['workHoursPerDay']
+            : self::STATUTORY_DAILY_MINUTES;
+
+        foreach ($byWorkDate as $dateStr => $dayAttendances) {
+            usort($dayAttendances, fn ($a, $b) => $a->clock_in_at <=> $b->clock_in_at);
+
+            $workDate = Carbon::parse($dateStr);
+            $dayType = $this->dayType($workDate, $settings);
+
+            $dayNet = 0;
+            $dayBreak = 0;
+            $dayNight = 0;
+            $priorNet = 0;
+            $firstClockIn = null;
+            $lastClockOut = null;
+
+            foreach ($dayAttendances as $att) {
+                $clockIn = Carbon::parse($att->clock_in_at);
+                $clockOut = Carbon::parse($att->clock_out_at);
+                $breakMin = BreakDeduction::resolveWithLimit(
+                    $att->break_minutes,
+                    $clockIn,
+                    $clockOut,
+                    $dateStr,
+                    $settings['breakStartTime'],
+                    $settings['breakEndTime'],
+                    $user->break_minutes ?? $settings['defaultBreakMinutes'],
+                    $att->attendanceBreaks,
+                );
+
+                $grossMinutes = (int) $clockIn->diffInMinutes($clockOut);
+                $netMinutes = max(0, $grossMinutes - $breakMin);
+                $nightMin = $this->nightMinutes($clockIn, $clockOut);
+
+                $dayNet += $netMinutes;
+                $dayBreak += $breakMin;
+                $dayNight += $nightMin;
+
+                $totals['total_rounded_minutes'] += self::roundMinutes(
+                    $netMinutes,
+                    $settings['salaryRoundMinutes'],
+                    $settings['salaryRoundRule'],
+                );
+
+                $breaksList = $this->breakIntervals($att, $clockIn, $clockOut, $breakMin, $settings);
+                $seg = $this->analyzeDay($clockIn, $clockOut, $breaksList, $holidayThreshold, $priorNet);
+
+                if ($dayType === 'legal') {
+                    $totals['legal_holiday_overtime_minutes'] += $seg['work_overtime'];
+                    $totals['legal_holiday_statutory_over_minutes'] += $seg['work_statutory'];
+                    $totals['legal_holiday_break_minutes'] += $breakMin;
+                    $totals['night_overtime_legal_holiday'] += $seg['night_overtime'];
+                    $totals['night_statutory_legal_holiday'] += $seg['night_statutory'];
+                    $totals['break_overtime_legal_holiday'] += $seg['break_overtime'];
+                    $totals['break_statutory_legal_holiday'] += $seg['break_statutory'];
+                    $totals['break_night_legal_holiday'] += $seg['break_night_total'];
+                    $totals['break_night_overtime_legal_holiday'] += $seg['break_night_overtime'];
+                    $totals['break_night_statutory_legal_holiday'] += $seg['break_night_statutory'];
+                } elseif ($dayType === 'prescribed') {
+                    $totals['prescribed_holiday_statutory_over_minutes'] += $seg['work_statutory'];
+                    $totals['prescribed_holiday_break_minutes'] += $breakMin;
+                    $totals['night_overtime_prescribed_holiday'] += $seg['night_overtime'];
+                    $totals['night_statutory_prescribed_holiday'] += $seg['night_statutory'];
+                    $totals['break_overtime_prescribed_holiday'] += $seg['break_overtime'];
+                    $totals['break_statutory_prescribed_holiday'] += $seg['break_statutory'];
+                    $totals['break_night_prescribed_holiday'] += $seg['break_night_total'];
+                    $totals['break_night_overtime_prescribed_holiday'] += $seg['break_night_overtime'];
+                    $totals['break_night_statutory_prescribed_holiday'] += $seg['break_night_statutory'];
+                } else {
+                    $totals['weekday_break_minutes'] += $breakMin;
+                    $totals['weekday_night_minutes'] += $nightMin;
+                    $totals['night_overtime_weekday'] += $seg['night_overtime'];
+                    $totals['night_statutory_weekday'] += $seg['night_statutory'];
+                    $totals['break_overtime_weekday'] += $seg['break_overtime'];
+                    $totals['break_statutory_weekday'] += $seg['break_statutory'];
+                    $totals['break_night_weekday'] += $seg['break_night_total'];
+                    $totals['break_night_overtime_weekday'] += $seg['break_night_overtime'];
+                    $totals['break_night_statutory_weekday'] += $seg['break_night_statutory'];
+                }
+
+                $priorNet += $netMinutes;
+
+                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
+                    $firstClockIn = $clockIn;
+                }
+                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
+                    $lastClockOut = $clockOut;
+                }
+            }
+
+            // 日合計（出勤日数・法定外・所定超過はここで1回だけ加算）
             $totals['work_days']++;
-
-            $clockIn = Carbon::parse($att->clock_in_at);
-            $clockOut = Carbon::parse($att->clock_out_at);
-            $breakMin = BreakDeduction::resolveWithLimit(
-                $att->break_minutes,
-                $clockIn,
-                $clockOut,
-                $att->work_date->format('Y-m-d'),
-                $settings['breakStartTime'],
-                $settings['breakEndTime'],
-                $user->break_minutes ?? $settings['defaultBreakMinutes'],
-                $att->attendanceBreaks,
-            );
-
-            // 日跨ぎ(夜勤)は clock_out_at が翌日時刻でも diffInMinutes が正しく跨いで計算する
-            $grossMinutes = (int) $clockIn->diffInMinutes($clockOut);
-            $netMinutes = max(0, $grossMinutes - $breakMin);
-            $nightMin = $this->nightMinutes($clockIn, $clockOut);
-            $statutoryOver = max(0, $netMinutes - self::STATUTORY_DAILY_MINUTES);
-
-            // 総計(会社ダッシュボード等が参照する既存キー。休日を含む全出勤の合算)
-            $totals['total_break_minutes'] += $breakMin;
-            $totals['total_work_minutes'] += $netMinutes;
-            $totals['total_rounded_minutes'] += self::roundMinutes(
-                $netMinutes,
-                $settings['salaryRoundMinutes'],
-                $settings['salaryRoundRule'],
-            );
-            $totals['night_minutes'] += $nightMin;
+            $totals['total_break_minutes'] += $dayBreak;
+            $totals['total_work_minutes'] += $dayNet;
+            $totals['night_minutes'] += $dayNight;
+            $statutoryOver = max(0, $dayNet - self::STATUTORY_DAILY_MINUTES);
             $totals['statutory_overtime_minutes'] += $statutoryOver;
 
-            // 休日区分(給与計算の勤怠項目用): 法定休日=日曜 / 所定休日=土曜 を既定とする
-            $dayType = $this->dayType($att->work_date, $settings);
-
-            // 休日労働の所定/所定外内訳: 1日の所定労働時間(未設定なら8時間)を閾値に日ごと振り分け
-            $holidayThreshold = $settings['hasSchedule'] ? (int) $settings['workHoursPerDay'] : self::STATUTORY_DAILY_MINUTES;
-            $holidayWithin = min($netMinutes, $holidayThreshold);
-            $holidayOver = max(0, $netMinutes - $holidayThreshold);
-
-            // MF準拠のバンド分割（所定内/所定外/法定外）と深夜・休憩の内訳を1日単位で算出。
-            $breaksList = $this->breakIntervals($att, $clockIn, $clockOut, $breakMin, $settings);
-            $seg = $this->analyzeDay($clockIn, $clockOut, $breaksList, $holidayThreshold);
+            $holidayWithin = min($dayNet, $holidayThreshold);
+            $holidayOver = max(0, $dayNet - $holidayThreshold);
 
             if ($dayType === 'legal') {
                 $totals['legal_holiday_days']++;
-                $totals['legal_holiday_minutes'] += $netMinutes;
+                $totals['legal_holiday_minutes'] += $dayNet;
                 $totals['legal_holiday_within_minutes'] += $holidayWithin;
-                $totals['legal_holiday_night_minutes'] += $nightMin;
-                // MF: 所定外時間（法定休日）=所定超〜8h、法定外時間（法定休日）=8h超
-                $totals['legal_holiday_overtime_minutes'] += $seg['work_overtime'];
-                $totals['legal_holiday_statutory_over_minutes'] += $seg['work_statutory'];
-                $totals['legal_holiday_break_minutes'] += $breakMin;
-                $totals['night_overtime_legal_holiday'] += $seg['night_overtime'];
-                $totals['night_statutory_legal_holiday'] += $seg['night_statutory'];
-                $totals['break_overtime_legal_holiday'] += $seg['break_overtime'];
-                $totals['break_statutory_legal_holiday'] += $seg['break_statutory'];
-                $totals['break_night_legal_holiday'] += $seg['break_night_total'];
-                $totals['break_night_overtime_legal_holiday'] += $seg['break_night_overtime'];
-                $totals['break_night_statutory_legal_holiday'] += $seg['break_night_statutory'];
+                $totals['legal_holiday_night_minutes'] += $dayNight;
             } elseif ($dayType === 'prescribed') {
                 $totals['prescribed_holiday_days']++;
-                $totals['prescribed_holiday_minutes'] += $netMinutes;
+                $totals['prescribed_holiday_minutes'] += $dayNet;
                 $totals['prescribed_holiday_within_minutes'] += $holidayWithin;
                 $totals['prescribed_holiday_overtime_minutes'] += $holidayOver;
-                $totals['prescribed_holiday_night_minutes'] += $nightMin;
-                // MF: 法定外時間（所定休日）=8h超
-                $totals['prescribed_holiday_statutory_over_minutes'] += $seg['work_statutory'];
-                $totals['prescribed_holiday_break_minutes'] += $breakMin;
-                $totals['night_overtime_prescribed_holiday'] += $seg['night_overtime'];
-                $totals['night_statutory_prescribed_holiday'] += $seg['night_statutory'];
-                $totals['break_overtime_prescribed_holiday'] += $seg['break_overtime'];
-                $totals['break_statutory_prescribed_holiday'] += $seg['break_statutory'];
-                $totals['break_night_prescribed_holiday'] += $seg['break_night_total'];
-                $totals['break_night_overtime_prescribed_holiday'] += $seg['break_night_overtime'];
-                $totals['break_night_statutory_prescribed_holiday'] += $seg['break_night_statutory'];
+                $totals['prescribed_holiday_night_minutes'] += $dayNight;
             } else {
-                // 平日
                 $totals['weekday_work_days']++;
-                $totals['weekday_break_minutes'] += $breakMin;
-                $totals['weekday_work_minutes'] += $netMinutes;
-                $totals['weekday_night_minutes'] += $nightMin;
+                $totals['weekday_work_minutes'] += $dayNet;
                 $totals['weekday_statutory_overtime_minutes'] += $statutoryOver;
-                // MF: 深夜所定外/深夜法定外/休憩内訳（平日）
-                $totals['night_overtime_weekday'] += $seg['night_overtime'];
-                $totals['night_statutory_weekday'] += $seg['night_statutory'];
-                $totals['break_overtime_weekday'] += $seg['break_overtime'];
-                $totals['break_statutory_weekday'] += $seg['break_statutory'];
-                $totals['break_night_weekday'] += $seg['break_night_total'];
-                $totals['break_night_overtime_weekday'] += $seg['break_night_overtime'];
-                $totals['break_night_statutory_weekday'] += $seg['break_night_statutory'];
 
-                if ($settings['hasSchedule']) {
-                    $dateStr = $att->work_date->format('Y-m-d');
+                if ($settings['hasSchedule'] && $firstClockIn && $lastClockOut) {
                     $scheduleStart = Carbon::parse("{$dateStr} {$settings['workStartTime']}");
                     $scheduleEnd = Carbon::parse("{$dateStr} {$settings['workEndTime']}");
 
-                    if ($clockIn->gt($scheduleStart)) {
+                    if ($firstClockIn->gt($scheduleStart)) {
                         $totals['late_count']++;
-                        $totals['late_minutes_weekday'] += (int) $scheduleStart->diffInMinutes($clockIn);
+                        $totals['late_minutes_weekday'] += (int) $scheduleStart->diffInMinutes($firstClockIn);
                     }
-                    if ($clockOut->lt($scheduleEnd)) {
+                    if ($lastClockOut->lt($scheduleEnd)) {
                         $totals['early_leave_count']++;
-                        $totals['early_leave_minutes_weekday'] += (int) $clockOut->diffInMinutes($scheduleEnd);
+                        $totals['early_leave_minutes_weekday'] += (int) $lastClockOut->diffInMinutes($scheduleEnd);
                     }
 
                     $scheduledMinutes = (int) $settings['workHoursPerDay'];
-                    if ($netMinutes > $scheduledMinutes) {
-                        $totals['overtime_minutes'] += $netMinutes - $scheduledMinutes;
-                        $totals['weekday_overtime_minutes'] += $netMinutes - $scheduledMinutes;
+                    if ($dayNet > $scheduledMinutes) {
+                        $dayOvertime = $dayNet - $scheduledMinutes;
+                        $totals['overtime_minutes'] += $dayOvertime;
+                        $totals['weekday_overtime_minutes'] += $dayOvertime;
                     }
                 }
             }
@@ -377,14 +407,16 @@ class AttendanceSummaryService
      * 各バンドの労働分・深夜分、および休憩のバンド別・深夜別内訳を返す。
      *
      * @param  list<array{0: Carbon, 1: Carbon}>  $breaks
+     * @param  int  $priorNet  同一日の先行シフトで既に累積した純労働分。
+     *                         同日複数シフトでも「所定内→所定外(8h)→法定外」の閾値を日通算で判定するために用いる。
      * @return array<string, int>
      */
-    private function analyzeDay(Carbon $in, Carbon $out, array $breaks, int $threshold): array
+    private function analyzeDay(Carbon $in, Carbon $out, array $breaks, int $threshold, int $priorNet = 0): array
     {
         $work = $this->subtractIntervals($in, $out, $breaks);
 
         $bands = ['scheduled' => [], 'overtime' => [], 'statutory' => []];
-        $acc = 0; // 累積純労働分
+        $acc = $priorNet; // 累積純労働分（先行シフト分を含む）
         foreach ($work as [$s, $e]) {
             $segLen = (int) $s->diffInMinutes($e);
             $offset = 0;
@@ -429,7 +461,7 @@ class AttendanceSummaryService
             if ($be2->lte($bs2)) {
                 continue;
             }
-            $netBefore = $this->netWorkBefore($work, $bs2);
+            $netBefore = $priorNet + $this->netWorkBefore($work, $bs2);
             if ($netBefore < $threshold) {
                 $band = 'scheduled';
             } elseif ($netBefore < self::STATUTORY_DAILY_MINUTES) {

@@ -30,6 +30,7 @@ interface AttendanceItem {
     computed_break_minutes: number | null;
     attendance_breaks?: BreakRecord[];
     department?: { id: number; name: string } | null;
+    clock_out_department?: { id: number; name: string } | null;
     user: { id: number; name: string };
 }
 
@@ -770,10 +771,24 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                                     </span>
                                                 )}
                                             </td>
-                                            {/* 打刻店舗 */}
+                                            {/* 打刻店舗（出勤店舗、退勤店舗が異なる場合は 出→退 を表示） */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">
                                                 {a?.department?.name ? (
-                                                    <span className="text-xs text-gray-500">{a.department.name}</span>
+                                                    (() => {
+                                                        const outName = a.clock_out_department?.name;
+                                                        const showOut = outName && outName !== a.department!.name;
+                                                        return (
+                                                            <span className="text-xs text-gray-500">
+                                                                {a.department!.name}
+                                                                {showOut && (
+                                                                    <>
+                                                                        <i className="fa-solid fa-arrow-right-long mx-1 text-[9px] text-gray-400" />
+                                                                        <span className="text-indigo-500">{outName}</span>
+                                                                    </>
+                                                                )}
+                                                            </span>
+                                                        );
+                                                    })()
                                                 ) : (
                                                     <span className="text-gray-300">—</span>
                                                 )}
