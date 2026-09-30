@@ -7,6 +7,14 @@ import AttendanceEditForm, {
 import AdminLayout from '@/Layouts/AdminLayout';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
 import {
+    DAY_TYPE_LABEL,
+    type DayType,
+    type HolidayInfo,
+    dayTypeHeaderBg,
+    dayTypeRowBg,
+    dayTypeTitle,
+} from '@/lib/holiday';
+import {
     currentMonthKey,
     monthLabel as fmtMonthLabel,
     useMonthClosingDay,
@@ -31,6 +39,10 @@ interface DayColumn {
     month: number;
     dow: string;
     is_weekend: boolean;
+    /** 年度設定に基づく休日区分。 */
+    day_type: DayType;
+    /** 祝日名（内閣府の祝日・会社独自の休日）。 */
+    holiday_label: string | null;
 }
 
 interface Row {
@@ -122,6 +134,11 @@ export default function MonthlySheet({
         if (col.dow === '土') return 'text-blue-500';
         return 'text-gray-500';
     };
+
+    const holidayInfo = (col: DayColumn): HolidayInfo => ({ type: col.day_type, label: col.holiday_label });
+
+    // 表内では「祝」だけなので、祝日名は表の下にまとめて出す。
+    const monthHolidays = days.filter((col) => col.holiday_label);
 
     const formatOutTime = (cell: DayCell) => {
         if (!cell.out) return cell.missing_out ? '未' : '--:--';
@@ -308,17 +325,29 @@ export default function MonthlySheet({
                                     <th className="border-b border-gray-200 px-2 py-2 text-center whitespace-nowrap">
                                         出勤
                                     </th>
-                                    {days.map((col) => (
-                                        <th
-                                            key={col.date}
-                                            className={`border-b border-l border-gray-200 px-2 py-1 text-center whitespace-nowrap ${
-                                                col.is_weekend ? 'bg-gray-100' : ''
-                                            }`}
-                                        >
-                                            <div className="tabular-nums text-gray-700">{col.day}</div>
-                                            <div className={`text-[10px] ${dowColor(col)}`}>{col.dow}</div>
-                                        </th>
-                                    ))}
+                                    {days.map((col) => {
+                                        const info = holidayInfo(col);
+                                        const headerBg = dayTypeHeaderBg(info) || (col.is_weekend ? 'bg-gray-100' : '');
+                                        return (
+                                            <th
+                                                key={col.date}
+                                                className={`border-b border-l border-gray-200 px-2 py-1 text-center whitespace-nowrap ${headerBg}`}
+                                                title={col.day_type !== 'weekday' ? dayTypeTitle(info) : undefined}
+                                            >
+                                                <div className="tabular-nums text-gray-700">{col.day}</div>
+                                                <div className={`text-[10px] ${dowColor(col)}`}>{col.dow}</div>
+                                                {col.day_type !== 'weekday' && (
+                                                    <div
+                                                        className={`text-[9px] font-bold leading-tight ${
+                                                            col.day_type === 'legal' ? 'text-rose-600' : 'text-amber-600'
+                                                        }`}
+                                                    >
+                                                        {col.holiday_label ? '祝' : col.day_type === 'legal' ? '法' : '所'}
+                                                    </div>
+                                                )}
+                                            </th>
+                                        );
+                                    })}
                                 </tr>
                             </thead>
                             <tbody>
@@ -354,12 +383,13 @@ export default function MonthlySheet({
                                                 const shifts = row.cells[col.date] ?? [];
                                                 const hasShifts = shifts.length > 0;
                                                 const clickable = canWrite;
+                                                const info = holidayInfo(col);
+                                                const cellBg = dayTypeRowBg(info) || (col.is_weekend ? 'bg-gray-50/60' : '');
                                                 return (
                                                     <td
                                                         key={col.date}
-                                                        className={`border-b border-l border-gray-100 px-1.5 py-1 text-center align-middle ${
-                                                            col.is_weekend ? 'bg-gray-50/60' : ''
-                                                        }`}
+                                                        className={`border-b border-l border-gray-100 px-1.5 py-1 text-center align-middle ${cellBg}`}
+                                                        title={!hasShifts && col.day_type !== 'weekday' ? dayTypeTitle(info) : undefined}
                                                     >
                                                         {hasShifts ? (
                                                             <div className="flex flex-col items-stretch gap-0.5">
@@ -426,13 +456,36 @@ export default function MonthlySheet({
                     </div>
                 </div>
 
-                <p className="text-[11px] text-gray-400">
-                    <span className="font-mono text-green-600">上段</span>=出勤 /{' '}
-                    <span className="font-mono text-blue-600">下段</span>=退勤（
-                    <span className="text-amber-500">未</span>=退勤打刻なし、
-                    <span className="font-mono text-blue-600">翌</span>=翌日退勤）。
-                    {canWrite && ' セルをクリックすると打刻の登録・編集ができます。'}
-                </p>
+                <div className="space-y-1.5 text-[11px] text-gray-400">
+                    <p>
+                        <span className="font-mono text-green-600">上段</span>=出勤 /{' '}
+                        <span className="font-mono text-blue-600">下段</span>=退勤（
+                        <span className="text-amber-500">未</span>=退勤打刻なし、
+                        <span className="font-mono text-blue-600">翌</span>=翌日退勤）。
+                        {canWrite && ' セルをクリックすると打刻の登録・編集ができます。'}
+                    </p>
+                    <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="inline-flex items-center gap-1">
+                            <span className="inline-block h-3 w-3 rounded border border-amber-200 bg-amber-100" />
+                            {DAY_TYPE_LABEL.prescribed}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                            <span className="inline-block h-3 w-3 rounded border border-rose-200 bg-rose-100" />
+                            {DAY_TYPE_LABEL.legal}
+                        </span>
+                        <span>
+                            <span className="font-bold text-amber-600">祝</span>=祝日 /{' '}
+                            <span className="font-bold text-amber-600">所</span>=所定休日 /{' '}
+                            <span className="font-bold text-rose-600">法</span>=法定休日
+                        </span>
+                    </p>
+                    {monthHolidays.length > 0 && (
+                        <p className="text-gray-500">
+                            <i className="fa-regular fa-calendar-check mr-1 text-amber-500" />
+                            {monthHolidays.map((col) => `${col.month}/${col.day} ${col.holiday_label}`).join(' ・ ')}
+                        </p>
+                    )}
+                </div>
             </div>
 
             {modal && (

@@ -10,6 +10,7 @@ use App\Models\Department;
 use App\Models\Setting;
 use App\Models\User;
 use App\Services\BreakDeduction;
+use App\Services\HolidayCalendar;
 use App\Services\MonthPeriod;
 use App\Services\PhotoStorageService;
 use Illuminate\Http\Request;
@@ -179,6 +180,12 @@ class AttendanceController extends Controller
             'salaryRoundRule' => $salaryRoundRule,
             'calendarFrom' => $dateFrom ?? null,
             'calendarTo' => $dateTo ?? null,
+            // 日付ごとの休日区分・祝日名（カレンダー表示・打刻なしの日でも休日が分かるように）
+            'holidays' => ($dateFrom && $dateTo)
+                ? app(HolidayCalendar::class)->forRange($dateFrom, $dateTo)
+                : app(HolidayCalendar::class)->forDates(
+                    $attendances->map(fn ($a) => $a->work_date->format('Y-m-d'))->unique()->values()->all(),
+                ),
             'filters' => [
                 'date_from' => $dateFrom ?? '',
                 'date_to' => $dateTo ?? '',
@@ -229,17 +236,23 @@ class AttendanceController extends Controller
             ->whereIn('user_id', $users->pluck('id'))
             ->get(['id', 'user_id', 'department_id', 'clock_out_department_id', 'work_date', 'clock_in_at', 'clock_out_at']);
 
+        $holidays = app(HolidayCalendar::class)->forRange($from, $to);
+
         $dow = ['日', '月', '火', '水', '木', '金', '土'];
         $days = [];
         $cursor = Carbon::parse($from);
         $end = Carbon::parse($to);
         while ($cursor->lte($end)) {
+            $date = $cursor->toDateString();
             $days[] = [
-                'date' => $cursor->toDateString(),
+                'date' => $date,
                 'day' => $cursor->day,
                 'month' => $cursor->month,
                 'dow' => $dow[$cursor->dayOfWeek],
                 'is_weekend' => in_array($cursor->dayOfWeek, [0, 6], true),
+                // 年度設定に基づく休日区分（legal=法定休日 / prescribed=所定休日 / weekday=平日）と祝日名。
+                'day_type' => $holidays[$date]['type'],
+                'holiday_label' => $holidays[$date]['label'],
             ];
             $cursor->addDay();
         }
@@ -336,6 +349,14 @@ class AttendanceController extends Controller
         return Inertia::render('Admin/Attendances/Index', [
             'attendances' => $attendances,
             'users' => User::orderByEmployeeNo()->get(['users.id', 'users.name']),
+            // 表示中の日付についての休日区分・祝日名
+            'holidays' => app(HolidayCalendar::class)->forDates(
+                collect($attendances->items())
+                    ->map(fn ($a) => $a->work_date->format('Y-m-d'))
+                    ->unique()
+                    ->values()
+                    ->all(),
+            ),
             'filters' => [
                 'user_id' => $request->input('user_id', ''),
                 'date_from' => $dateFrom,

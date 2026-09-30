@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\AttendanceItemMaster;
 use App\Models\BonusInput;
 use App\Models\BusinessLocation;
 use App\Models\Payslip;
@@ -27,6 +28,13 @@ class PayrollRunController extends Controller
         private PayrollCalculator $calculator,
         private BonusCalculator $bonusCalculator,
     ) {}
+
+    /**
+     * 勤怠項目マスタID → 表示単位（unit_format）。明細の勤怠値を単位付きで表示するために使う。
+     *
+     * @var array<int, string>|null
+     */
+    private ?array $attendanceUnitFormats = null;
 
     public function index()
     {
@@ -280,48 +288,7 @@ class PayrollRunController extends Controller
         ]);
 
         DB::transaction(function () use ($payslip, $validated) {
-            foreach ($validated['items'] ?? [] as $row) {
-                $item = $payslip->items()->whereKey($row['id'])->first();
-                if (! $item) {
-                    continue;
-                }
-
-                // 勤怠は時間(分)・回数(数量)を手入力として上書き。
-                if ($item->item_type === 'attendance') {
-                    $changed = false;
-                    if (array_key_exists('minutes', $row) && $row['minutes'] !== null) {
-                        $newMinutes = (int) $row['minutes'];
-                        if ((int) $item->minutes !== $newMinutes) {
-                            $item->minutes = $newMinutes;
-                            $changed = true;
-                        }
-                    }
-                    if (array_key_exists('quantity', $row) && $row['quantity'] !== null) {
-                        $newQuantity = (float) $row['quantity'];
-                        if ((float) $item->quantity !== $newQuantity) {
-                            $item->quantity = $newQuantity;
-                            $changed = true;
-                        }
-                    }
-                    if ($changed) {
-                        $item->is_manual_override = true;
-                        $item->save();
-                    }
-                    continue;
-                }
-
-                // 金額が変わった項目だけ手入力として上書き（未変更行の自動計算状態を維持）。
-                $newAmount = (int) ($row['amount'] ?? 0);
-                if ((int) $item->amount === $newAmount) {
-                    continue;
-                }
-                $item->update([
-                    'amount' => $newAmount,
-                    'is_manual_override' => true,
-                ]);
-            }
-
-            $this->recalcPayslipTotals($payslip);
+            $this->applyPayslipItemEdits($payslip, $validated['items'] ?? []);
 
             $payslip->update([
                 'remarks' => $validated['remarks'] ?? null,
@@ -330,6 +297,49 @@ class PayrollRunController extends Controller
         });
 
         return back()->with('success', '明細を更新しました。');
+    }
+
+    /**
+     * 選択中の従業員だけ再計算する。
+     * 画面上の支給額（未保存の変更含む）を先に保存し、手入力支給は残したまま
+     * 雇用保険・所得税などの自動計算控除を現在の支給額に合わせて更新する。
+     */
+    public function recalculatePayslip(Request $request, PayrollRun $run, Payslip $payslip)
+    {
+        abort_unless($payslip->payroll_run_id === $run->id, 404);
+
+        if ($run->isFinalized()) {
+            return back()->with('info', '確定済みのため再計算できません。');
+        }
+
+        $validated = $request->validate([
+            'remarks' => ['nullable', 'string', 'max:1000'],
+            'is_confirmed' => ['boolean'],
+            'items' => ['array'],
+            'items.*.id' => ['required', 'integer', 'exists:payslip_items,id'],
+            'items.*.amount' => ['nullable', 'integer'],
+            'items.*.minutes' => ['nullable', 'integer'],
+            'items.*.quantity' => ['nullable', 'numeric'],
+        ]);
+
+        DB::transaction(function () use ($payslip, $validated) {
+            $this->applyPayslipItemEdits($payslip, $validated['items'] ?? []);
+            $payslip->update([
+                'remarks' => $validated['remarks'] ?? $payslip->remarks,
+                'is_confirmed' => (bool) ($validated['is_confirmed'] ?? $payslip->is_confirmed),
+            ]);
+        });
+
+        $user = $payslip->fresh()->user;
+        if ($user) {
+            if ($run->pay_type === 'bonus') {
+                $this->bonusCalculator->calculate($run, $user);
+            } else {
+                $this->calculator->calculate($run, $user);
+            }
+        }
+
+        return back()->with('success', 'この従業員を再計算しました。手入力した支給は残し、控除を現在の支給額に合わせて更新しました。');
     }
 
     /** 明細項目1件を自動計算の金額に戻す（手入力の解除）。 */
@@ -396,6 +406,57 @@ class PayrollRunController extends Controller
         });
 
         return back()->with('success', '賞与額を保存しました。「賞与計算を実行」で反映します。');
+    }
+
+    /**
+     * 明細の手入力を反映する（金額が変わった支給・控除、値を変えた勤怠）。
+     *
+     * @param  array<int, array<string, mixed>>  $rows
+     */
+    private function applyPayslipItemEdits(Payslip $payslip, array $rows): void
+    {
+        foreach ($rows as $row) {
+            $item = $payslip->items()->whereKey($row['id'])->first();
+            if (! $item) {
+                continue;
+            }
+
+            // 勤怠は時間(分)・回数(数量)を手入力として上書き。
+            if ($item->item_type === 'attendance') {
+                $changed = false;
+                if (array_key_exists('minutes', $row) && $row['minutes'] !== null) {
+                    $newMinutes = (int) $row['minutes'];
+                    if ((int) $item->minutes !== $newMinutes) {
+                        $item->minutes = $newMinutes;
+                        $changed = true;
+                    }
+                }
+                if (array_key_exists('quantity', $row) && $row['quantity'] !== null) {
+                    $newQuantity = (float) $row['quantity'];
+                    if ((float) $item->quantity !== $newQuantity) {
+                        $item->quantity = $newQuantity;
+                        $changed = true;
+                    }
+                }
+                if ($changed) {
+                    $item->is_manual_override = true;
+                    $item->save();
+                }
+                continue;
+            }
+
+            // 金額が変わった項目だけ手入力として上書き（未変更行の自動計算状態を維持）。
+            $newAmount = (int) ($row['amount'] ?? 0);
+            if ((int) $item->amount === $newAmount) {
+                continue;
+            }
+            $item->update([
+                'amount' => $newAmount,
+                'is_manual_override' => true,
+            ]);
+        }
+
+        $this->recalcPayslipTotals($payslip);
     }
 
     /** 明細の支給・控除合計と差引支給額を再集計する。 */
@@ -542,6 +603,8 @@ class PayrollRunController extends Controller
     /** @return array<int, array<string, mixed>> */
     private function itemsByType(Payslip $p, string $type): array
     {
+        $unitFormats = $type === 'attendance' ? $this->attendanceUnitFormats() : [];
+
         return $p->items
             ->where('item_type', $type)
             ->map(fn ($i) => [
@@ -552,9 +615,18 @@ class PayrollRunController extends Controller
                 'amount' => $i->amount,
                 'minutes' => $i->minutes,
                 'quantity' => $i->quantity !== null ? (float) $i->quantity : null,
+                'unit_format' => $unitFormats[$i->source_master_id] ?? null,
                 'is_manual_override' => $i->is_manual_override,
             ])
             ->values()
+            ->all();
+    }
+
+    /** @return array<int, string> */
+    private function attendanceUnitFormats(): array
+    {
+        return $this->attendanceUnitFormats ??= AttendanceItemMaster::query()
+            ->pluck('unit_format', 'id')
             ->all();
     }
 

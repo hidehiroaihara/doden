@@ -1,6 +1,14 @@
 import AdminLayout from '@/Layouts/AdminLayout';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
 import {
+    DAY_TYPE_LABEL,
+    type HolidayMap,
+    dayTypeBadgeClass,
+    dayTypeRowBg,
+    dayTypeShortLabel,
+    dayTypeTitle,
+} from '@/lib/holiday';
+import {
     monthLabel,
     monthPresetRanges,
     resolveMonthRange,
@@ -259,6 +267,8 @@ interface Props {
     salaryRoundRule: string;
     calendarFrom: string | null;
     calendarTo: string | null;
+    /** 日付ごとの休日区分・祝日名（年度設定に基づく）。 */
+    holidays: HolidayMap;
     filters: { date_from?: string; date_to?: string; month?: string; year?: string };
 }
 
@@ -425,7 +435,7 @@ function SummaryCard({ icon, iconBg, label, value }: { icon: string; iconBg: str
     );
 }
 
-export default function UserAttendancesIndex({ user, attendances, summary, hasSchedule, scheduleInfo, defaultBreakMinutes, salaryRoundMinutes, salaryRoundRule, calendarFrom, calendarTo, filters }: Props) {
+export default function UserAttendancesIndex({ user, attendances, summary, hasSchedule, scheduleInfo, defaultBreakMinutes, salaryRoundMinutes, salaryRoundRule, calendarFrom, calendarTo, holidays, filters }: Props) {
     const canWrite = useAdminPermission('attendances');
     const [form, setForm] = useState({ date_from: filters.date_from || '', date_to: filters.date_to || '', month: filters.month || '', year: filters.year || '' });
     const [breakModal, setBreakModal] = useState<{ attendanceId: number; breaks: BreakRecord[] } | null>(null);
@@ -541,7 +551,10 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
         return WEEKDAY_COLORS[d.getDay()] || 'text-gray-600';
     };
 
+    // 休日は年度設定（祝日・所定休日・法定休日）を優先し、設定が無ければ土日の色分けにフォールバックする。
     const getWeekdayRowBg = (dateStr: string) => {
+        const holidayBg = dayTypeRowBg(holidays[dateStr]);
+        if (holidayBg) return holidayBg;
         const d = new Date(dateStr + 'T00:00:00');
         return WEEKDAY_ROW_BG[d.getDay()] || '';
     };
@@ -770,6 +783,14 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                                         {shiftIdx + 1}
                                                     </span>
                                                 )}
+                                                {shiftIdx === 0 && dayTypeShortLabel(holidays[dateStr]) && (
+                                                    <span
+                                                        className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${dayTypeBadgeClass(holidays[dateStr])}`}
+                                                        title={dayTypeTitle(holidays[dateStr])}
+                                                    >
+                                                        {dayTypeShortLabel(holidays[dateStr])}
+                                                    </span>
+                                                )}
                                             </td>
                                             {/* 打刻店舗（出勤店舗、退勤店舗が異なる場合は 出→退 を表示） */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">
@@ -923,6 +944,17 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                 })}
                             </tbody>
                         </table>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-gray-100 px-4 py-2 text-[11px] text-gray-400">
+                        <span className="inline-flex items-center gap-1">
+                            <span className="inline-block h-3 w-3 rounded border border-amber-200 bg-amber-100" />
+                            {DAY_TYPE_LABEL.prescribed}
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                            <span className="inline-block h-3 w-3 rounded border border-rose-200 bg-rose-100" />
+                            {DAY_TYPE_LABEL.legal}
+                        </span>
+                        <span>「祝 〇〇」は祝日（基本設定＞年度設定の休日が反映されます）</span>
                     </div>
                 </div>
             </div>

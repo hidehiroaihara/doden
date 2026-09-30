@@ -210,6 +210,7 @@ class PayrollSettingController extends Controller
             'break_end_time' => Setting::getValue('break_end_time', '13:00'),
             'salary_round_minutes' => Setting::getValue('salary_round_minutes', '15'),
             'salary_round_rule' => Setting::getValue('salary_round_rule', 'floor'),
+            'salary_round_night_total' => Setting::getValue('salary_round_night_total', '1') !== '0',
             'punch_use_photo' => Setting::getValue('punch_use_photo', '0') === '1',
             'punch_day_boundary_hour' => Setting::getValue('punch_day_boundary_hour', '5'),
             'work_start_time' => Setting::getValue('work_start_time'),

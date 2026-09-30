@@ -27,12 +27,45 @@ class AttendanceSummaryService
     private const STATUTORY_DAILY_MINUTES = 480;
 
     /**
+     * 深夜時間の月合計キー。
+     *
+     * 丸めの基準は出勤時刻だが深夜帯の境界は 22:00 固定なので、打刻ごとに丸めた実労働から
+     * 深夜分を切り出しても丸め単位の倍数にならない（例: 17:57〜23:27 → 深夜87分）。
+     * そのため月合計を丸め単位へ揃える。設定 salary_round_night_total で無効化できる。
+     *
+     * @var list<string>
+     */
+    private const NIGHT_TOTAL_KEYS = [
+        'night_minutes',
+        'weekday_night_minutes',
+        'prescribed_holiday_night_minutes',
+        'legal_holiday_night_minutes',
+        'night_overtime_weekday',
+        'night_statutory_weekday',
+        'night_overtime_prescribed_holiday',
+        'night_statutory_prescribed_holiday',
+        'night_overtime_legal_holiday',
+        'night_statutory_legal_holiday',
+        'break_night_weekday',
+        'break_night_overtime_weekday',
+        'break_night_statutory_weekday',
+        'break_night_prescribed_holiday',
+        'break_night_overtime_prescribed_holiday',
+        'break_night_statutory_prescribed_holiday',
+        'break_night_legal_holiday',
+        'break_night_overtime_legal_holiday',
+        'break_night_statutory_legal_holiday',
+    ];
+
+    /**
      * 指定 monthKey('Y-m') の期間について、対象ユーザーの勤怠サマリを返す。
      *
      * @param  Collection<int, User>|null  $users  未指定なら在籍中の全ユーザー
+     * @param  bool  $useRoundedWork  true で打刻ごとの丸め後実労働を基準に集計する（給与計算用）。
+     *                                打刻一覧の「丸め後」列と月合計が一致する。
      * @return array{hasSchedule: bool, users: array<int, array<string, mixed>>, company: array<string, mixed>}
      */
-    public function forMonth(string $monthKey, ?Collection $users = null): array
+    public function forMonth(string $monthKey, ?Collection $users = null, bool $useRoundedWork = false): array
     {
         $period = MonthPeriod::resolve($monthKey);
         $monthStart = $period['from'];
@@ -57,6 +90,7 @@ class AttendanceSummaryService
                 $user,
                 $monthAttendances->where('user_id', $user->id),
                 $settings,
+                $useRoundedWork,
             );
             $userSummaries[] = $summary;
 
@@ -87,9 +121,10 @@ class AttendanceSummaryService
      *
      * @param  Collection<int, Attendance>  $attendances
      * @param  array<string, mixed>  $settings
+     * @param  bool  $useRoundedWork  打刻ごとの丸め後実労働を基準に集計するか
      * @return array<string, mixed>
      */
-    private function summarizeUser(User $user, Collection $attendances, array $settings): array
+    private function summarizeUser(User $user, Collection $attendances, array $settings, bool $useRoundedWork = false): array
     {
         $totals = $this->emptyTotals();
         $totals['user_id'] = $user->id;
@@ -141,21 +176,33 @@ class AttendanceSummaryService
                     $att->attendanceBreaks,
                 );
 
+                // 遅刻・早退は打刻時刻そのもので判定するため、丸め前の退勤時刻を保持する。
+                $rawClockOut = $clockOut->copy();
+
                 $grossMinutes = (int) $clockIn->diffInMinutes($clockOut);
                 $netMinutes = max(0, $grossMinutes - $breakMin);
+                $breaksList = $this->breakIntervals($att, $clockIn, $clockOut, $breakMin, $settings);
+
+                $roundedNet = self::roundMinutes(
+                    $netMinutes,
+                    $settings['salaryRoundMinutes'],
+                    $settings['salaryRoundRule'],
+                );
+                $totals['total_rounded_minutes'] += $roundedNet;
+
+                // 丸め後モードでは、丸めで増減した分を勤務終了側にずらした実効退勤時刻で集計する。
+                // これにより区分（所定内/所定外/法定外）と深夜が丸め後の実労働と整合する。
+                if ($useRoundedWork && $roundedNet !== $netMinutes) {
+                    $clockOut = $this->shiftClockOutToNet($clockIn, $clockOut, $breaksList, $netMinutes, $roundedNet);
+                    $netMinutes = $roundedNet;
+                }
+
                 $nightMin = $this->nightMinutes($clockIn, $clockOut);
 
                 $dayNet += $netMinutes;
                 $dayBreak += $breakMin;
                 $dayNight += $nightMin;
 
-                $totals['total_rounded_minutes'] += self::roundMinutes(
-                    $netMinutes,
-                    $settings['salaryRoundMinutes'],
-                    $settings['salaryRoundRule'],
-                );
-
-                $breaksList = $this->breakIntervals($att, $clockIn, $clockOut, $breakMin, $settings);
                 $seg = $this->analyzeDay($clockIn, $clockOut, $breaksList, $holidayThreshold, $priorNet);
 
                 if ($dayType === 'legal') {
@@ -196,8 +243,8 @@ class AttendanceSummaryService
                 if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
                     $firstClockIn = $clockIn;
                 }
-                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
-                    $lastClockOut = $clockOut;
+                if ($lastClockOut === null || $rawClockOut->gt($lastClockOut)) {
+                    $lastClockOut = $rawClockOut;
                 }
             }
 
@@ -254,7 +301,28 @@ class AttendanceSummaryService
         $totals['within_statutory_minutes'] = max(0, $totals['total_work_minutes'] - $totals['statutory_overtime_minutes']);
         $totals['weekday_within_statutory_minutes'] = max(0, $totals['weekday_work_minutes'] - $totals['weekday_statutory_overtime_minutes']);
 
+        if ($useRoundedWork && $settings['salaryRoundNightTotal']) {
+            $this->roundNightTotals($totals, $settings);
+        }
+
         return $totals;
+    }
+
+    /**
+     * 深夜時間の月合計を丸め単位へ揃える（NIGHT_TOTAL_KEYS 参照）。
+     *
+     * @param  array<string, mixed>  $totals
+     * @param  array<string, mixed>  $settings
+     */
+    private function roundNightTotals(array &$totals, array $settings): void
+    {
+        foreach (self::NIGHT_TOTAL_KEYS as $key) {
+            $totals[$key] = self::roundMinutes(
+                (int) ($totals[$key] ?? 0),
+                $settings['salaryRoundMinutes'],
+                $settings['salaryRoundRule'],
+            );
+        }
     }
 
     /**
@@ -272,7 +340,9 @@ class AttendanceSummaryService
     {
         // 1) 独自休日（祝日・会社独自の休日など特定日）
         if (! empty($settings['customHolidayDates'][$date->format('Y-m-d')])) {
-            return $settings['customHolidayDefaultType'] ?? 'prescribed';
+            $type = $settings['customHolidayDefaultType'] ?? 'prescribed';
+
+            return in_array($type, ['legal', 'prescribed', 'weekday'], true) ? $type : 'prescribed';
         }
 
         // 2) 年度の休日設定（dow 0=日〜6=土 → 区分）
@@ -479,6 +549,35 @@ class AttendanceSummaryService
     }
 
     /**
+     * 純労働分が $targetNet になるよう退勤時刻をずらした時刻を返す。
+     *
+     * 切捨てで $targetNet < $net のときは実労働区間を先頭から辿って該当時点まで巻き戻す
+     * （休憩帯を労働として数えないため）。切上げのときは退勤後へ伸ばす。
+     *
+     * @param  list<array{0: Carbon, 1: Carbon}>  $breaks
+     */
+    private function shiftClockOutToNet(Carbon $in, Carbon $out, array $breaks, int $net, int $targetNet): Carbon
+    {
+        if ($targetNet >= $net) {
+            return $out->copy()->addMinutes($targetNet - $net);
+        }
+        if ($targetNet <= 0) {
+            return $in->copy();
+        }
+
+        $remaining = $targetNet;
+        foreach ($this->subtractIntervals($in, $out, $breaks) as [$s, $e]) {
+            $length = (int) $s->diffInMinutes($e);
+            if ($remaining <= $length) {
+                return $s->copy()->addMinutes($remaining);
+            }
+            $remaining -= $length;
+        }
+
+        return $out->copy();
+    }
+
+    /**
      * [in, out] から休憩区間を差し引いた実労働区間の一覧を返す。
      *
      * @param  list<array{0: Carbon, 1: Carbon}>  $breaks
@@ -653,11 +752,13 @@ class AttendanceSummaryService
             'breakEndTime' => Setting::getValue('break_end_time', '13:00'),
             'salaryRoundMinutes' => (int) Setting::getValue('salary_round_minutes', 15),
             'salaryRoundRule' => Setting::getValue('salary_round_rule', 'floor'),
+            // 深夜時間の月合計も丸め単位へ揃えるか。'0' にすると丸め前（端数あり）へ戻る。
+            'salaryRoundNightTotal' => Setting::getValue('salary_round_night_total', '1') !== '0',
             'hasSchedule' => (bool) ($workStartTime && $workEndTime && $workHoursPerDay),
-            // 年度の休日設定（優先）。独自休日の出勤は既定で所定休日扱い。
+            // 年度の休日設定（優先）。独自休日は年度設定の「祝日」区分に従う（未設定なら所定休日扱い）。
             'holidayTypeMap' => $holidayTypeMap,
             'customHolidayDates' => $customHolidayDates,
-            'customHolidayDefaultType' => 'prescribed',
+            'customHolidayDefaultType' => $holidayTypeMap[HolidayCalendar::HOLIDAY_DOW] ?? 'prescribed',
             // フォールバック用: 基本設定＞勤怠の曜日指定（既定: 法定=日曜 / 所定=土曜）
             'legalHolidayDows' => $this->splitDows(Setting::getValue('legal_holiday_dows', 'sunday')),
             'prescribedHolidayDows' => $this->splitDows(Setting::getValue('prescribed_holiday_dows', 'saturday')),

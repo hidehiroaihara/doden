@@ -40,6 +40,8 @@ class SettingController extends Controller
             'break_end_time' => ['nullable', 'date_format:H:i', 'required_with:break_start_time', 'after:break_start_time'],
             'salary_round_minutes' => ['required', 'integer', 'min:1', 'max:60'],
             'salary_round_rule' => ['required', 'in:floor,round,ceil'],
+            // 深夜時間の月合計も丸め単位へ揃えるか（OFF で従来の端数あり表示に戻る）
+            'salary_round_night_total' => ['nullable', 'boolean'],
             'month_closing_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             // 打刻時に顔写真（カメラ・顔認識）を使用するか
             'punch_use_photo' => ['nullable', 'boolean'],
@@ -56,6 +58,7 @@ class SettingController extends Controller
         Setting::setValue('break_end_time', ($validated['break_end_time'] ?? '') ?: null);
         Setting::setValue('salary_round_minutes', $validated['salary_round_minutes']);
         Setting::setValue('salary_round_rule', $validated['salary_round_rule']);
+        Setting::setValue('salary_round_night_total', $request->boolean('salary_round_night_total') ? '1' : '0');
 
         Setting::setValue('punch_use_photo', $request->boolean('punch_use_photo') ? '1' : '0');
 

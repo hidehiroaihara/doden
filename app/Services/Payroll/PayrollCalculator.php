@@ -84,6 +84,9 @@ class PayrollCalculator
         $prevBases = $this->previousBases($run, $user);
         $bases = ['allowance_base' => 0.0, 'deduction_base' => 0.0];
         $earnings = $this->buildEarnings($employee, $attendance, $settings, $prevBases, $bases);
+        // 給与計算画面で手入力した支給は残し、雇用保険・所得税などの控除はその金額を基礎にする。
+        $existingPayslip = Payslip::where('payroll_run_id', $run->id)->where('user_id', $user->id)->first();
+        $earnings = $this->applyManualEarningOverrides($existingPayslip, $earnings);
         [$deductions, , $flatTaxApplied, $snapshot] = $this->buildDeductions($employee, $earnings, $run, $user, $effectiveDate);
         $attendanceItems = $this->buildAttendanceItems($attendance, $settings);
 
@@ -614,6 +617,45 @@ class PayrollCalculator
     }
 
     /**
+     * 明細に残っている手入力支給を、控除計算の基礎へ反映する。
+     * 行自体は upsertItem 側で維持する。マスタに無いコードは無視する。
+     *
+     * @param  array<string, array<string, mixed>>  $earnings
+     * @return array<string, array<string, mixed>>
+     */
+    private function applyManualEarningOverrides(?Payslip $payslip, array $earnings): array
+    {
+        if (! $payslip?->exists) {
+            return $earnings;
+        }
+
+        $overrides = $payslip->items()
+            ->where('item_type', 'earning')
+            ->where('is_manual_override', true)
+            ->get(['code', 'amount']);
+
+        $byCode = [];
+        foreach ($overrides as $item) {
+            $code = (string) $item->code;
+            if ($code !== '') {
+                $byCode[$code] = (int) $item->amount;
+            }
+        }
+        if ($byCode === []) {
+            return $earnings;
+        }
+
+        foreach ($earnings as $i => $row) {
+            $code = (string) ($row['code'] ?? '');
+            if ($code !== '' && array_key_exists($code, $byCode)) {
+                $earnings[$i]['amount'] = $byCode[$code];
+            }
+        }
+
+        return $earnings;
+    }
+
+    /**
      * 支給行のうち、支給項目マスタの指定フラグが立っている項目の合計額。
      */
     private function sumEarningsByFlag(EmployeePayroll $employee, array $earnings, string $flag): int
@@ -916,9 +958,11 @@ class PayrollCalculator
      */
     private function attendanceMinutes(PayrollRun $run, User $user, array $settings): array
     {
+        // 打刻一覧の「丸め後」列と月合計が一致するよう、給与計算は丸め後の実労働で集計する。
         $result = $this->summaries->forMonth(
             $run->period_key,
             User::whereKey($user->id)->get(['id', 'name', 'break_minutes']),
+            true,
         );
         $userSummary = $result['users'][0] ?? [];
 
@@ -965,8 +1009,10 @@ class PayrollCalculator
 
     /**
      * 時給1/時給2/日給1/日給2 の単価を解決する。
-     * MFに倣い、時給1/日給1・時給2/日給2 は従業員情報の設定値を優先し、
-     * 未設定の場合は割増基礎からの算出値（時給1=基礎÷月平均所定時間 / 日給1=基礎÷月平均所定日数）へフォールバックする。
+     * 時給1/日給1 は従業員情報の設定値を優先し、未設定の場合は割増基礎からの算出値
+     * （時給1=基礎÷月平均所定時間 / 日給1=基礎÷月平均所定日数）へフォールバックする。
+     * 時給2/日給2 は第2単価のため、従業員情報が未設定なら 0 とし、時給1/日給1 では代替しない
+     * （未設定者に第2単価ベースの手当が付かないようにする）。
      *
      * @return array{hourly1: float, hourly2: float, daily1: float, daily2: float}
      */
@@ -975,14 +1021,11 @@ class PayrollCalculator
         $computedHourly = $monthlyHours > 0 ? $allowanceBase / $monthlyHours : 0.0;
         $computedDaily = $monthlyDays > 0 ? $allowanceBase / $monthlyDays : 0.0;
 
-        $hourly1 = (int) $employee->hourly_wage > 0 ? (float) $employee->hourly_wage : $computedHourly;
-        $daily1 = (int) $employee->daily_wage > 0 ? (float) $employee->daily_wage : $computedDaily;
-
         return [
-            'hourly1' => $hourly1,
-            'hourly2' => (int) $employee->hourly_wage2 > 0 ? (float) $employee->hourly_wage2 : $hourly1,
-            'daily1' => $daily1,
-            'daily2' => (int) $employee->daily_wage2 > 0 ? (float) $employee->daily_wage2 : $daily1,
+            'hourly1' => (int) $employee->hourly_wage > 0 ? (float) $employee->hourly_wage : $computedHourly,
+            'hourly2' => (int) $employee->hourly_wage2 > 0 ? (float) $employee->hourly_wage2 : 0.0,
+            'daily1' => (int) $employee->daily_wage > 0 ? (float) $employee->daily_wage : $computedDaily,
+            'daily2' => (int) $employee->daily_wage2 > 0 ? (float) $employee->daily_wage2 : 0.0,
         ];
     }
 

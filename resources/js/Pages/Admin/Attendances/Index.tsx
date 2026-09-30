@@ -1,5 +1,13 @@
 import AdminLayout from '@/Layouts/AdminLayout';
 import { useAdminPermission } from '@/hooks/useAdminPermission';
+import {
+    DAY_TYPE_LABEL,
+    type HolidayMap,
+    dayTypeBadgeClass,
+    dayTypeRowBg,
+    dayTypeShortLabel,
+    dayTypeTitle,
+} from '@/lib/holiday';
 import { monthPresetRanges, useMonthClosingDay } from '@/lib/monthPeriod';
 import { Head, Link, router } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
@@ -38,8 +46,13 @@ interface PaginatedData<T> {
 interface Props {
     attendances: PaginatedData<AttendanceItem>;
     users: Array<{ id: number; name: string }>;
+    /** 日付ごとの休日区分・祝日名（年度設定に基づく）。 */
+    holidays: HolidayMap;
     filters: { user_id?: string; date_from?: string; date_to?: string };
 }
+
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const WEEKDAY_COLORS: Record<number, string> = { 0: 'text-red-500', 6: 'text-blue-500' };
 
 function toDateStr(d: Date): string {
     const pad = (n: number) => n.toString().padStart(2, '0');
@@ -343,7 +356,7 @@ function DateDropdown({
     );
 }
 
-export default function AttendancesIndex({ attendances, users, filters }: Props) {
+export default function AttendancesIndex({ attendances, users, holidays, filters }: Props) {
     const [form, setForm] = useState({
         user_id: filters.user_id || '',
         date_from: filters.date_from || '',
@@ -465,9 +478,25 @@ export default function AttendancesIndex({ attendances, users, filters }: Props)
                                         const breakRecords = a.attendance_breaks ?? [];
                                         const showBreak = hasRecords || a.break_minutes != null;
 
+                                        const holiday = holidays[a.work_date];
+                                        const dow = new Date(a.work_date).getDay();
+
                                         return (
-                                            <tr key={a.id}>
-                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{formatDate(a.work_date)}</td>
+                                            <tr key={a.id} className={dayTypeRowBg(holiday)}>
+                                                <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+                                                    {formatDate(a.work_date)}
+                                                    <span className={`ml-1 text-xs ${WEEKDAY_COLORS[dow] ?? 'text-gray-400'}`}>
+                                                        ({WEEKDAYS[dow]})
+                                                    </span>
+                                                    {dayTypeShortLabel(holiday) && (
+                                                        <span
+                                                            className={`ml-2 inline-block rounded px-1.5 py-0.5 text-[10px] font-bold ${dayTypeBadgeClass(holiday)}`}
+                                                            title={dayTypeTitle(holiday)}
+                                                        >
+                                                            {dayTypeShortLabel(holiday)}
+                                                        </span>
+                                                    )}
+                                                </td>
                                                 <td className="whitespace-nowrap px-6 py-4 text-sm">
                                                     <Link
                                                         href={userAttendancesHref(a.user.id, a.work_date)}
@@ -569,6 +598,17 @@ export default function AttendancesIndex({ attendances, users, filters }: Props)
                                     )}
                                 </tbody>
                             </table>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-gray-100 px-6 py-2 text-[11px] text-gray-400">
+                            <span className="inline-flex items-center gap-1">
+                                <span className="inline-block h-3 w-3 rounded border border-amber-200 bg-amber-100" />
+                                {DAY_TYPE_LABEL.prescribed}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                                <span className="inline-block h-3 w-3 rounded border border-rose-200 bg-rose-100" />
+                                {DAY_TYPE_LABEL.legal}
+                            </span>
+                            <span>「祝 〇〇」は祝日（基本設定＞年度設定の休日が反映されます）</span>
                         </div>
                     </div>
 

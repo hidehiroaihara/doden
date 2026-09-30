@@ -11,6 +11,8 @@ interface Item {
     amount: number | null;
     minutes: number | null;
     quantity: number | null;
+    /** 勤怠項目マスタの表示単位（勤怠項目のみ）。 */
+    unit_format?: string | null;
     is_manual_override: boolean;
 }
 
@@ -106,10 +108,17 @@ function periodLabel(r: { period_key: string; payment_date: string | null; closi
     return `${pay}${close}`;
 }
 
-function fmtAttendance(item: Item): string {
-    if (item.minutes != null) return `${(item.minutes / 60).toFixed(2)}`;
-    if (item.quantity != null) return `${item.quantity}`;
-    return '';
+/** Payslip::orderByEmployeeNo と同じ（未設定は末尾 → 桁数 → 自然順）。 */
+function compareEmployeeNo(a: string | null | undefined, b: string | null | undefined): number {
+    const noA = a?.trim() ?? '';
+    const noB = b?.trim() ?? '';
+    const emptyA = noA === '';
+    const emptyB = noB === '';
+    if (emptyA !== emptyB) return emptyA ? 1 : -1;
+    if (emptyA) return 0;
+    const lenDiff = noA.length - noB.length;
+    if (lenDiff !== 0) return lenDiff;
+    return noA.localeCompare(noB, 'ja', { numeric: true });
 }
 
 /** 勤怠項目が時間ベース(分)か回数ベース(数量)かを判定する。 */
@@ -126,9 +135,30 @@ function attDisplayValue(item: Item): number {
     return 0;
 }
 
-/** 表示値（時間 or 回数）を表示用文字列へ整形する。 */
-function fmtAttValue(item: Item, v: number): string {
-    return attUnit(item) === 'time' ? v.toFixed(2) : `${v}`;
+/** 勤怠項目マスタの「単位」(unit_format) ごとの小数桁と単位ラベル。 */
+const ATT_UNIT_FORMATS: Record<string, { decimals: number; unit: string }> = {
+    hour: { decimals: 0, unit: '時間' },
+    hour_1: { decimals: 1, unit: '時間' },
+    hour_decimal: { decimals: 2, unit: '時間' },
+    day: { decimals: 1, unit: '日' },
+    day_decimal: { decimals: 2, unit: '日' },
+    count: { decimals: 0, unit: '回' },
+};
+
+function attUnitFormat(item: Item): { decimals: number; unit: string; min60: boolean } {
+    const key = item.unit_format ?? (attUnit(item) === 'time' ? 'hour_decimal' : 'day');
+    if (key === 'hour_min60') return { decimals: 2, unit: '', min60: true };
+    return { ...(ATT_UNIT_FORMATS[key] ?? ATT_UNIT_FORMATS.hour_decimal), min60: false };
+}
+
+/** 表示値（時間 or 回数）を数値部と単位部へ整形する。 */
+function fmtAttParts(item: Item, v: number): { value: string; unit: string } {
+    const format = attUnitFormat(item);
+    if (format.min60) {
+        const total = Math.round(v * 60);
+        return { value: `${Math.floor(total / 60)}時間${String(total % 60).padStart(2, '0')}分`, unit: '' };
+    }
+    return { value: v.toFixed(format.decimals), unit: format.unit };
 }
 
 /** クリック外で閉じるドロップダウン。 */
@@ -231,7 +261,7 @@ export default function PayrollRunShow({
         return [...rows].sort((a, b) => {
             if (sortKey === 'net_pay') return b.net_pay - a.net_pay;
             if (sortKey === 'name') return (a.user_name ?? '').localeCompare(b.user_name ?? '', 'ja');
-            return (a.employee_no ?? '').localeCompare(b.employee_no ?? '', 'ja', { numeric: true });
+            return compareEmployeeNo(a.employee_no, b.employee_no);
         });
     }, [payslips, keyword, deptFilter, confirmFilter, sortKey]);
 
@@ -279,9 +309,8 @@ export default function PayrollRunShow({
         }
     };
 
-    const savePayslip = () => {
-        if (!selected) return;
-        setProcessing(true);
+    const payslipPayload = () => {
+        if (!selected) return null;
         const items = [...selected.earnings, ...selected.deductions].map((i) => ({ id: i.id, amount: amounts[i.id] ?? 0 }));
         const attItems = selected.attendances.map((a) => {
             const v = attValues[a.id] ?? 0;
@@ -289,9 +318,32 @@ export default function PayrollRunShow({
                 ? { id: a.id, minutes: Math.round(v * 60) }
                 : { id: a.id, quantity: v };
         });
+        return { items: [...items, ...attItems], remarks, is_confirmed: confirmed };
+    };
+
+    const savePayslip = () => {
+        if (!selected) return;
+        const payload = payslipPayload();
+        if (!payload) return;
+        setProcessing(true);
         router.put(
             route('admin.payroll.runs.payslips.update', { run: run.id, payslip: selected.id }),
-            { items: [...items, ...attItems], remarks, is_confirmed: confirmed } as never,
+            payload as never,
+            { preserveScroll: true, onFinish: () => setProcessing(false) },
+        );
+    };
+
+    const recalculatePayslip = () => {
+        if (!selected) return;
+        if (!confirm('この従業員だけ再計算します。画面上の支給額（未保存の変更も含む）を保存し、手入力した支給は残したまま、雇用保険・所得税などの自動計算控除を現在の支給額に合わせて更新します。よろしいですか？')) {
+            return;
+        }
+        const payload = payslipPayload();
+        if (!payload) return;
+        setProcessing(true);
+        router.post(
+            route('admin.payroll.runs.payslips.recalculate', { run: run.id, payslip: selected.id }),
+            payload as never,
             { preserveScroll: true, onFinish: () => setProcessing(false) },
         );
     };
@@ -633,10 +685,23 @@ export default function PayrollRunShow({
                                             </p>
                                         </div>
                                     </div>
-                                    <Link href={route('admin.users.show', selected.user_id)}
-                                        className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:bg-gray-50">
-                                        <i className="fa-solid fa-id-card" />従業員情報
-                                    </Link>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        {editable && (
+                                            <button
+                                                type="button"
+                                                onClick={recalculatePayslip}
+                                                disabled={processing}
+                                                className="inline-flex items-center gap-2 rounded-lg border border-teal-600 px-3 py-1.5 text-xs font-semibold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
+                                                title="この従業員だけ再計算します。手入力した支給は残し、控除を現在の支給額に合わせます"
+                                            >
+                                                <i className="fa-solid fa-calculator" />この従業員を再計算
+                                            </button>
+                                        )}
+                                        <Link href={route('admin.users.show', selected.user_id)}
+                                            className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:bg-gray-50">
+                                            <i className="fa-solid fa-id-card" />従業員情報
+                                        </Link>
+                                    </div>
                                 </div>
 
                                 {/* 上段: 支給 / 控除 / 差引合計 */}
@@ -661,10 +726,20 @@ export default function PayrollRunShow({
                                             この明細を確認済みにする
                                         </label>
                                         {editable && (
-                                            <button onClick={savePayslip} disabled={processing}
-                                                className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
-                                                <i className="fa-solid fa-floppy-disk" />保存する
-                                            </button>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={recalculatePayslip}
+                                                    disabled={processing}
+                                                    className="inline-flex items-center gap-2 rounded-lg border border-teal-600 px-4 py-2.5 text-sm font-semibold text-teal-700 transition hover:bg-teal-50 disabled:opacity-50"
+                                                >
+                                                    <i className="fa-solid fa-calculator" />この従業員を再計算
+                                                </button>
+                                                <button onClick={savePayslip} disabled={processing}
+                                                    className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50">
+                                                    <i className="fa-solid fa-floppy-disk" />保存する
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
@@ -867,14 +942,18 @@ function AttendanceQuadrants({
                                                         onChange={(e) => setAttValues((prev) => ({ ...prev, [a.id]: Number(e.target.value) }))}
                                                         onBlur={() => setEditingId(null)}
                                                         onKeyDown={(e) => { if (e.key === 'Enter') setEditingId(null); }} />
-                                                ) : (
-                                                    <span
-                                                        className={`text-[13px] tabular-nums text-gray-600 ${editable ? 'cursor-pointer rounded px-2 py-0.5 hover:bg-teal-50' : ''}`}
-                                                        title={editable ? 'クリックして修正' : undefined}
-                                                        onClick={() => editable && setEditingId(a.id)}>
-                                                        {fmtAttValue(a, attValues[a.id] ?? attDisplayValue(a))}
-                                                    </span>
-                                                )}
+                                                ) : (() => {
+                                                    const { value, unit } = fmtAttParts(a, attValues[a.id] ?? attDisplayValue(a));
+                                                    return (
+                                                        <span
+                                                            className={`text-[13px] text-gray-600 ${editable ? 'cursor-pointer rounded px-2 py-0.5 hover:bg-teal-50' : ''}`}
+                                                            title={editable ? 'クリックして修正' : undefined}
+                                                            onClick={() => editable && setEditingId(a.id)}>
+                                                            <span className="tabular-nums">{value}</span>
+                                                            {unit && <span className="ml-1 text-[11px] text-gray-400">{unit}</span>}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </div>
                                         </td>
                                     </tr>

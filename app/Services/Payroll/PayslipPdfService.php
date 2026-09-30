@@ -2,10 +2,12 @@
 
 namespace App\Services\Payroll;
 
+use App\Models\AttendanceItemMaster;
 use App\Models\PayItemMaster;
 use App\Models\DeductionItemMaster;
 use App\Models\Payslip;
 use App\Models\Setting;
+use App\Support\AttendanceUnitFormat;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
 
@@ -113,11 +115,20 @@ class PayslipPdfService
             ->map(fn ($i) => ['name' => $i->name, 'amount' => (int) $i->amount])
             ->values()->all();
 
-        $attendances = $payslip->items->where('item_type', 'attendance')
+        $attendanceItems = $payslip->items->where('item_type', 'attendance');
+        $attendanceUnits = AttendanceItemMaster::query()
+            ->whereIn('id', $attendanceItems->pluck('source_master_id')->filter()->unique())
+            ->pluck('unit_format', 'id');
+
+        $attendances = $attendanceItems
             ->filter(fn ($i) => $this->includeAttendanceOnPayslip($i))
             ->map(fn ($i) => [
                 'name' => $i->name,
-                'value' => $this->formatAttendance($i->minutes, $i->quantity !== null ? (float) $i->quantity : null),
+                'value' => AttendanceUnitFormat::format(
+                    $i->minutes,
+                    $i->quantity !== null ? (float) $i->quantity : null,
+                    $attendanceUnits[$i->source_master_id] ?? null,
+                ),
             ])
             ->values()->all();
 
@@ -279,19 +290,6 @@ class PayslipPdfService
         $base = sprintf('%d（令和%02d）年%02d月', $date->year, $date->year - 2018, $date->month);
 
         return $withDay ? $base . sprintf('%02d日', $date->day) : $base;
-    }
-
-    /** 勤怠値の表示整形（時間は 9.00 / 日数は 2.0）。 */
-    private function formatAttendance(?int $minutes, ?float $quantity): string
-    {
-        if ($minutes !== null) {
-            return number_format($minutes / 60, 2);
-        }
-        if ($quantity !== null) {
-            return number_format($quantity, 1);
-        }
-
-        return '—';
     }
 
     /**

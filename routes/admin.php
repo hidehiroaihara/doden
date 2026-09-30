@@ -147,6 +147,7 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::post('payroll/runs/{run}/finalize', [PayrollRunController::class, 'finalize'])->name('payroll.runs.finalize');
         Route::post('payroll/runs/{run}/reopen', [PayrollRunController::class, 'reopen'])->name('payroll.runs.reopen');
         Route::put('payroll/runs/{run}/payslips/{payslip}', [PayrollRunController::class, 'updatePayslip'])->name('payroll.runs.payslips.update');
+        Route::post('payroll/runs/{run}/payslips/{payslip}/recalculate', [PayrollRunController::class, 'recalculatePayslip'])->name('payroll.runs.payslips.recalculate');
         Route::post('payroll/runs/{run}/payslips/{payslip}/items/{item}/revert', [PayrollRunController::class, 'revertItem'])->name('payroll.runs.items.revert');
         Route::put('payroll/runs/{run}/bulk-update', [PayrollRunController::class, 'bulkUpdate'])->name('payroll.runs.bulk-update');
         Route::put('payroll/runs/{run}/bonus-inputs', [PayrollRunController::class, 'saveBonusInputs'])->name('payroll.runs.bonus-inputs');

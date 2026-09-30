@@ -222,6 +222,7 @@ interface AttendanceSettings {
     break_end_time: string | null;
     salary_round_minutes: string | null;
     salary_round_rule: string | null;
+    salary_round_night_total: boolean;
     punch_use_photo: boolean;
     punch_day_boundary_hour: string;
     work_start_time: string | null;
@@ -459,6 +460,7 @@ interface WorkSettingsData {
     break_end_time: string;
     salary_round_minutes: string;
     salary_round_rule: string;
+    salary_round_night_total: boolean;
     punch_use_photo: boolean;
     punch_day_boundary_hour: string;
     work_start_time: string;
@@ -574,6 +576,23 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                         <p className="mt-1 text-xs text-gray-400">例: 8:15を30分単位 → 切り捨て8:00 / 四捨五入・切り上げ8:30</p>
                     </div>
                 </div>
+                <label className="mt-5 flex cursor-pointer items-start gap-3 border-t border-gray-100 pt-4">
+                    <input
+                        type="checkbox"
+                        disabled={!canWrite}
+                        className="mt-0.5 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-60"
+                        checked={data.salary_round_night_total}
+                        onChange={(e) => setData('salary_round_night_total', e.target.checked)}
+                    />
+                    <span className="text-sm">
+                        <span className="font-medium text-gray-700">深夜時間の月合計も丸める</span>
+                        <span className="mt-0.5 block text-xs text-gray-400">
+                            深夜帯の境界は22:00固定なので、日ごとに丸めた実労働から深夜分を切り出すと端数が残ります
+                            （例: 2.88時間）。ONにすると給与明細の深夜時間を月合計で丸め単位に揃えます（30分・切り捨てなら2.50時間）。
+                            OFFにすると端数のまま計算する従来の挙動に戻ります。
+                        </span>
+                    </span>
+                </label>
             </div>
 
             {/* 打刻時の顔写真 */}
@@ -2878,6 +2897,7 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
         break_end_time: attendanceSettings.break_end_time ?? '',
         salary_round_minutes: attendanceSettings.salary_round_minutes ?? '15',
         salary_round_rule: attendanceSettings.salary_round_rule ?? 'floor',
+        salary_round_night_total: attendanceSettings.salary_round_night_total ?? true,
         punch_use_photo: attendanceSettings.punch_use_photo ?? false,
         punch_day_boundary_hour: attendanceSettings.punch_day_boundary_hour ?? '5',
         work_start_time: attendanceSettings.work_start_time ?? '',
