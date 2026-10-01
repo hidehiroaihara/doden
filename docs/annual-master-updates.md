@@ -14,7 +14,7 @@
   税額表には画面内に検算ツールがあります。
 - 公式URLと現在の登録値は `php artisan payroll:rates --urls` / `php artisan payroll:rates --compare` で確認できます。
 - この資料はブラウザからも見られます（`/docs`）。パスワードは `.env` の `DOCS_PASSWORD`。
-  管理画面にログイン中の管理者はパスワード不要です。
+  既定では管理画面ログイン中はパスワード省略可。常に合言葉を求める場合は `DOCS_REQUIRE_PASSWORD_ALWAYS=true`。
 
 ---
 

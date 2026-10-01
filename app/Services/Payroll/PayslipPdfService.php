@@ -8,6 +8,7 @@ use App\Models\DeductionItemMaster;
 use App\Models\Payslip;
 use App\Models\Setting;
 use App\Support\AttendanceUnitFormat;
+use App\Support\PayslipItemDisplayOrder;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
 
@@ -96,8 +97,8 @@ class PayslipPdfService
         $settings = $this->displaySettings();
         [$closingDate, $paymentDate] = $this->resolveRunDates($run);
 
-        $earningItems = $payslip->items->where('item_type', 'earning');
-        $deductionItems = $payslip->items->where('item_type', 'deduction');
+        $earningItems = PayslipItemDisplayOrder::sort($payslip, $payslip->items->where('item_type', 'earning'), 'earning');
+        $deductionItems = PayslipItemDisplayOrder::sort($payslip, $payslip->items->where('item_type', 'deduction'), 'deduction');
         $showZeroEarnings = PayItemMaster::query()
             ->whereIn('id', $earningItems->pluck('source_master_id')->filter()->unique())
             ->pluck('show_zero', 'id');
@@ -115,7 +116,7 @@ class PayslipPdfService
             ->map(fn ($i) => ['name' => $i->name, 'amount' => (int) $i->amount])
             ->values()->all();
 
-        $attendanceItems = $payslip->items->where('item_type', 'attendance');
+        $attendanceItems = PayslipItemDisplayOrder::sort($payslip, $payslip->items->where('item_type', 'attendance'), 'attendance');
         $attendanceUnits = AttendanceItemMaster::query()
             ->whereIn('id', $attendanceItems->pluck('source_master_id')->filter()->unique())
             ->pluck('unit_format', 'id');

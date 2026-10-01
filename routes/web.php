@@ -89,7 +89,7 @@ Route::middleware(['punch.access'])->group(function () {
 });
 
 // 社内資料ビューア（docs/ 配下の Markdown）。合言葉は .env の DOCS_PASSWORD。
-// 未設定なら 404 になり、管理画面ログイン中の管理者はパスワード不要。
+// 未設定なら 404。DOCS_REQUIRE_PASSWORD_ALWAYS=true なら管理者も合言葉必須。
 Route::prefix('docs')->name('docs.')->group(function () {
     Route::get('/', [DocsController::class, 'index'])->name('index');
     Route::post('login', [DocsController::class, 'login'])->middleware('throttle:10,1')->name('login');

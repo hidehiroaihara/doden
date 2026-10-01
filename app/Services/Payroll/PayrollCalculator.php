@@ -269,7 +269,15 @@ class PayrollCalculator
 
         // 給与計算画面では0円の有効項目も行として保持（後から手入力するため）。
         // 給与明細PDFでは PayslipPdfService 側で show_zero に従い非表示にする。
-        return array_values($results);
+        // 表示順は基本設定の支給項目 sort_order に合わせる（算出パス順では並べない）。
+        $ordered = [];
+        foreach ($masters as $m) {
+            if (array_key_exists($m->code, $results)) {
+                $ordered[] = $results[$m->code];
+            }
+        }
+
+        return $ordered;
     }
 
     /**

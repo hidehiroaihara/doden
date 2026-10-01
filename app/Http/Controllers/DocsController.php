@@ -11,7 +11,8 @@ use Illuminate\Validation\ValidationException;
  * 社内資料（docs/ 配下の Markdown）をブラウザで閲覧するための管理者向けビューア。
  *
  * config/docs.php に列挙したページだけを公開し、DOCS_PASSWORD による合言葉で保護する。
- * 管理画面にログイン中の管理者はパスワード不要。DOCS_PASSWORD 未設定なら機能全体が 404。
+ * 管理画面ログイン中のパスワード省略は config docs.require_password_always で制御。
+ * DOCS_PASSWORD 未設定なら機能全体が 404。
  */
 class DocsController extends Controller
 {
@@ -94,10 +95,10 @@ class DocsController extends Controller
         abort_if(blank(config('docs.password')), 404);
     }
 
-    /** 管理画面ログイン中、またはパスワード認証が有効期間内か。 */
+    /** 管理画面ログイン中（省略可のときのみ）、またはパスワード認証が有効期間内か。 */
     private function isAuthorized(): bool
     {
-        if (Auth::guard('admin')->check()) {
+        if (! config('docs.require_password_always') && Auth::guard('admin')->check()) {
             return true;
         }
 

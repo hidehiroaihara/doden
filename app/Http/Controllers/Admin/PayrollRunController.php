@@ -9,6 +9,7 @@ use App\Models\BusinessLocation;
 use App\Models\Payslip;
 use App\Models\PayrollRun;
 use App\Models\User;
+use App\Support\PayslipItemDisplayOrder;
 use App\Services\Payroll\BonusCalculator;
 use App\Services\Payroll\PayrollCalculator;
 use Illuminate\Http\Request;
@@ -99,7 +100,8 @@ class PayrollRunController extends Controller
             ->with([
                 'user:id,name,last_name,first_name,department_id',
                 'user.department:id,name',
-                'user.employeePayroll:id,user_id,employee_no,position,employment_type',
+                // pay_type は支給行の表示順（時給/月給マスタ）に必要
+                'user.employeePayroll:id,user_id,employee_no,position,employment_type,pay_type',
                 'items',
             ])
             ->orderByEmployeeNo()
@@ -605,8 +607,7 @@ class PayrollRunController extends Controller
     {
         $unitFormats = $type === 'attendance' ? $this->attendanceUnitFormats() : [];
 
-        return $p->items
-            ->where('item_type', $type)
+        return PayslipItemDisplayOrder::sort($p, $p->items->where('item_type', $type), $type)
             ->map(fn ($i) => [
                 'id' => $i->id,
                 'code' => $i->code,

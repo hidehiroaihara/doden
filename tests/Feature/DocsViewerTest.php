@@ -64,9 +64,34 @@ class DocsViewerTest extends TestCase
         $this->assertFalse(session()->has(DocsController::SESSION_KEY));
     }
 
-    public function test_logged_in_admin_skips_the_password(): void
+    public function test_logged_in_admin_skips_the_password_by_default(): void
     {
+        config(['docs.require_password_always' => false]);
+
         $this->actingAs($this->admin(), 'admin')
+            ->get(route('docs.show', 'annual-master-updates'))
+            ->assertOk()
+            ->assertSee('源泉徴収税額表（月額表）');
+    }
+
+    public function test_logged_in_admin_requires_password_when_always_flag_is_set(): void
+    {
+        config(['docs.require_password_always' => true]);
+        $admin = $this->admin();
+
+        $this->actingAs($admin, 'admin')
+            ->get(route('docs.show', 'annual-master-updates'))
+            ->assertOk()
+            ->assertSee('パスワードを入力してください')
+            ->assertDontSee('毎年更新が必要な法定マスタ');
+
+        $this->actingAs($admin, 'admin')
+            ->post(route('docs.login'), [
+                'password' => self::PASSWORD,
+                'intended' => 'annual-master-updates',
+            ])->assertRedirect(route('docs.show', 'annual-master-updates'));
+
+        $this->actingAs($admin, 'admin')
             ->get(route('docs.show', 'annual-master-updates'))
             ->assertOk()
             ->assertSee('源泉徴収税額表（月額表）');
