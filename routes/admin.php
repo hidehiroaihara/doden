@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\PayslipExportController;
 use App\Http\Controllers\Admin\PayslipReportController;
 use App\Http\Controllers\Admin\CommuteAllowanceController;
 use App\Http\Controllers\Admin\FlatTaxReductionController;
+use App\Http\Controllers\Admin\IncomeTaxMonthlyTableController;
 use App\Http\Controllers\Admin\IncomeTaxStatementController;
 use App\Http\Controllers\Admin\ReportController;
 use App\Http\Controllers\Admin\ReportExportController;
@@ -130,6 +131,12 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::delete('payroll/settings/deduction-items/{deductionItem}', [PayrollSettingController::class, 'destroyDeductionItem'])->name('payroll.settings.deduction-items.destroy');
         Route::post('payroll/settings/attendance-items', [PayrollSettingController::class, 'storeAttendanceItem'])->name('payroll.settings.attendance-items.store');
         Route::delete('payroll/settings/attendance-items/{attendanceItem}', [PayrollSettingController::class, 'destroyAttendanceItem'])->name('payroll.settings.attendance-items.destroy');
+        // 基本設定: 源泉徴収税額表（月額表）の年分マスタ（毎年更新）
+        Route::get('payroll/settings/income-tax-monthly-table', [IncomeTaxMonthlyTableController::class, 'index'])->name('payroll.settings.income-tax-monthly-table');
+        Route::get('payroll/settings/income-tax-monthly-table/template', [IncomeTaxMonthlyTableController::class, 'template'])->name('payroll.settings.income-tax-monthly-table.template');
+        Route::post('payroll/settings/income-tax-monthly-table', [IncomeTaxMonthlyTableController::class, 'store'])->name('payroll.settings.income-tax-monthly-table.store');
+        Route::delete('payroll/settings/income-tax-monthly-table/{incomeTaxMonthlyTable}', [IncomeTaxMonthlyTableController::class, 'destroy'])->name('payroll.settings.income-tax-monthly-table.destroy');
+
         Route::post('payroll/settings/insurance-sets', [PayrollSettingController::class, 'storeInsuranceSet'])->name('payroll.settings.insurance-sets.store');
         Route::delete('payroll/settings/insurance-sets/{insuranceSet}', [PayrollSettingController::class, 'destroyInsuranceSet'])->name('payroll.settings.insurance-sets.destroy');
         Route::post('payroll/settings/insurance-sets/{insuranceSet}/apply-kyokai', [PayrollSettingController::class, 'applyKyokaiRates'])->name('payroll.settings.insurance-sets.apply-kyokai');

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DocsController;
 use App\Http\Controllers\ProfileController;
 use App\Models\Attendance;
 use App\Models\Department;
@@ -85,6 +86,15 @@ Route::middleware(['punch.access'])->group(function () {
             'usePhoto' => \App\Models\Setting::getValue('punch_use_photo', '0') === '1',
         ]);
     })->name('punch');
+});
+
+// 社内資料ビューア（docs/ 配下の Markdown）。合言葉は .env の DOCS_PASSWORD。
+// 未設定なら 404 になり、管理画面ログイン中の管理者はパスワード不要。
+Route::prefix('docs')->name('docs.')->group(function () {
+    Route::get('/', [DocsController::class, 'index'])->name('index');
+    Route::post('login', [DocsController::class, 'login'])->middleware('throttle:10,1')->name('login');
+    Route::post('logout', [DocsController::class, 'logout'])->name('logout');
+    Route::get('{slug}', [DocsController::class, 'show'])->name('show');
 });
 
 Route::get('/dashboard', function () {

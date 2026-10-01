@@ -88,6 +88,7 @@ class PayrollRatesCommand extends Command
         $this->comment('協会けんぽのみCSVで突合: php artisan payroll:rates --csv');
         $this->comment('現在→更新後の差分: php artisan payroll:rates --date=2026-04-01 --compare=2027-03-01');
         $this->comment('過去を塗り替えない更新: LegalMasterSeeder に新しい effective_from の行を追加 → php artisan db:seed --class=LegalMasterSeeder');
+        $this->comment('毎年更新が必要な法定マスタの一覧: docs/annual-master-updates.md');
 
         return self::SUCCESS;
     }

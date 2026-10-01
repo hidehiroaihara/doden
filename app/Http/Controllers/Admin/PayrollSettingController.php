@@ -11,6 +11,7 @@ use App\Models\Department;
 use App\Models\FiscalYear;
 use App\Models\FiscalYearCustomHoliday;
 use App\Models\FiscalYearHoliday;
+use App\Models\IncomeTaxMonthlyTable;
 use App\Models\InsuranceRate;
 use App\Models\InsuranceRateSet;
 use App\Models\JobTitle;
@@ -55,6 +56,7 @@ class PayrollSettingController extends Controller
             'municipalities' => ResidentTaxMunicipality::orderBy('name')->get(['id', 'name', 'designation_number']),
             // 全般タブ
             'general' => $this->generalSettings(),
+            'incomeTaxTableStatus' => $this->incomeTaxTableStatus(),
             'closingDateGroups' => ClosingDateGroup::orderBy('sort_order')->orderBy('id')->get(),
             'jobTitles' => JobTitle::orderBy('sort_order')->orderBy('id')->get(),
             'leaveTypes' => LeaveType::orderBy('sort_order')->orderBy('id')->get(),
@@ -195,6 +197,24 @@ class PayrollSettingController extends Controller
             $out[$key] = Setting::getValue($key);
         }
         return $out;
+    }
+
+    /**
+     * 源泉徴収税額表（月額表）の登録状況。全般タブで毎年の更新漏れに気づけるよう表示する。
+     *
+     * @return array<string, mixed>
+     */
+    private function incomeTaxTableStatus(): array
+    {
+        $currentYear = (int) now()->year;
+        $active = IncomeTaxMonthlyTable::forDate(now()->toDateString());
+
+        return [
+            'current_year' => $currentYear,
+            'has_current_year' => IncomeTaxMonthlyTable::where('target_year', $currentYear)->exists(),
+            'active_effective_from' => $active?->effective_from->toDateString(),
+            'active_name' => $active?->name,
+        ];
     }
 
     /**

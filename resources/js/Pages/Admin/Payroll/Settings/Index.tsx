@@ -233,6 +233,14 @@ interface AttendanceSettings {
     prescribed_holiday_dows: string[];
 }
 
+/** 源泉徴収税額表（月額表）の登録状況。毎年の更新漏れ検知に使う。 */
+interface IncomeTaxTableStatus {
+    current_year: number;
+    has_current_year: boolean;
+    active_effective_from: string | null;
+    active_name: string | null;
+}
+
 interface Props {
     payItems: PayItem[];
     deductionItems: DeductionItem[];
@@ -240,6 +248,7 @@ interface Props {
     locations: Location[];
     municipalities: Municipality[];
     general: Record<string, string | null>;
+    incomeTaxTableStatus: IncomeTaxTableStatus;
     closingDateGroups: ClosingGroup[];
     jobTitles: JobTitleRow[];
     leaveTypes: LeaveTypeRow[];
@@ -2628,8 +2637,9 @@ function PensionFundEditModal({ loc, fund, onClose }: {
 }
 
 /* ============================ 全般タブ ============================ */
-function GeneralTab({ general, closingDateGroups, jobTitles, leaveTypes, departments, options, canWrite }: {
+function GeneralTab({ general, incomeTaxTableStatus, closingDateGroups, jobTitles, leaveTypes, departments, options, canWrite }: {
     general: Record<string, string | null>;
+    incomeTaxTableStatus: IncomeTaxTableStatus;
     closingDateGroups: ClosingGroup[];
     jobTitles: JobTitleRow[];
     leaveTypes: LeaveTypeRow[];
@@ -2675,6 +2685,18 @@ function GeneralTab({ general, closingDateGroups, jobTitles, leaveTypes, departm
                         <select className={field} disabled={!canWrite} value={g.data.income_tax_calc_method} onChange={(e) => g.setData('income_tax_calc_method', e.target.value)}>
                             {Object.entries(options.incomeTaxMethods).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                         </select>
+                        {/* 月額表は毎年更新が必要なため、登録状況をここでも知らせる */}
+                        {g.data.income_tax_calc_method === 'monthly_table' && (
+                            <p className={`mt-1.5 text-xs ${incomeTaxTableStatus.active_effective_from && incomeTaxTableStatus.has_current_year ? 'text-gray-400' : 'font-semibold text-amber-700'}`}>
+                                {incomeTaxTableStatus.active_effective_from
+                                    ? `適用中: ${incomeTaxTableStatus.active_name ?? incomeTaxTableStatus.active_effective_from}`
+                                    : '税額表が未登録です（電算機計算の特例で計算されます）'}
+                                {!incomeTaxTableStatus.has_current_year && `／${incomeTaxTableStatus.current_year}年分は未登録`}
+                                <Link href={route('admin.payroll.settings.income-tax-monthly-table')} className="ml-1.5 font-semibold text-teal-700 hover:text-teal-800">
+                                    税額表を管理 <i className="fa-solid fa-arrow-right text-[10px]" />
+                                </Link>
+                            </p>
+                        )}
                     </div>
                     <div>
                         <label className={lbl}>個人番号又は法人番号</label>
@@ -2833,7 +2855,7 @@ function GeneralTab({ general, closingDateGroups, jobTitles, leaveTypes, departm
     );
 }
 
-export default function PayrollSettingsIndex({ payItems, deductionItems, attendanceItems, locations, municipalities, general, closingDateGroups, jobTitles, leaveTypes, departments, attendanceSettings, fiscalYear, payslipSettings, options }: Props) {
+export default function PayrollSettingsIndex({ payItems, deductionItems, attendanceItems, locations, municipalities, general, incomeTaxTableStatus, closingDateGroups, jobTitles, leaveTypes, departments, attendanceSettings, fiscalYear, payslipSettings, options }: Props) {
     const canWrite = useAdminPermission('payroll');
     const canWriteWork = useAdminPermission('settings');
     const [tab, setTab] = useState<TabKey>(() => {
@@ -3129,7 +3151,7 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
                 </div>
 
                 {tab === 'general' && (
-                    <GeneralTab general={general} closingDateGroups={closingDateGroups} jobTitles={jobTitles}
+                    <GeneralTab general={general} incomeTaxTableStatus={incomeTaxTableStatus} closingDateGroups={closingDateGroups} jobTitles={jobTitles}
                         leaveTypes={leaveTypes} departments={departments} options={options} canWrite={canWrite} />
                 )}
 

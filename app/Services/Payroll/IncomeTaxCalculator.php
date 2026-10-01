@@ -3,18 +3,24 @@
 namespace App\Services\Payroll;
 
 use App\Models\IncomeTaxBracket;
+use App\Models\IncomeTaxMonthlyTable;
+use App\Models\Setting;
 
 /**
  * 源泉所得税(月額)の計算。
  *
- * 係数は income_tax_brackets（適用期間つきマスタ）から取得する。
- * マスタ未投入の期間は内蔵の既定係数（電算機特例の近似）へフォールバックする。
- * これにより年度改定は「新しい適用開始日の行を追加」するだけで反映でき、
- * 過去分の再計算でも当時の係数が参照される（明細スナップショットと併用）。
+ * 方式は基本設定＞全般の「源泉徴収税額の計算方法」で切り替える。
+ *  - monthly_table（既定・MFクラウド準拠）: 国税庁「給与所得の源泉徴収税額表（月額表）」から
+ *    社会保険料等控除後の給与等の階級 × 扶養親族等の数で税額を引く（復興特別所得税込み）。
+ *    表は income_tax_monthly_tables / income_tax_monthly_rows に年分ごとに登録する。
+ *  - computer_special: 電子計算機による計算の特例の係数（income_tax_brackets）で式計算する。
+ *
+ * どちらも適用日で年分を解決するため、過去分の再計算でも当時の表・係数が参照される
+ * （明細スナップショット income_tax_source と併用）。
  *
  * 計算の入力（設計書10 控除項目「所得税」）:
  *   課税対象 = (所得税の計算対象 − 社会保険料合計)
- * 甲欄は扶養親族等の数で控除段階が変わる。乙欄は扶養を考慮しない。
+ * 甲欄は扶養親族等の数で税額が変わる。乙欄は扶養を考慮しない。
  */
 class IncomeTaxCalculator
 {
@@ -43,20 +49,59 @@ class IncomeTaxCalculator
     ];
 
     /**
-     * @param  int          $socialInsuranceDeductedAmount  社会保険料等控除後の課税支給額(円)
-     * @param  int          $dependents                     扶養親族等の数
-     * @param  string       $taxTable                       'kou'(甲) | 'otsu'(乙)
-     * @param  string|null  $effectiveDate                  適用日(Y-m-d)。指定時はマスタを参照
+     * @param  int  $socialInsuranceDeductedAmount  社会保険料等控除後の課税支給額(円)
+     * @param  int  $dependents  扶養親族等の数
+     * @param  string  $taxTable  'kou'(甲) | 'otsu'(乙)
+     * @param  string|null  $effectiveDate  適用日(Y-m-d)。指定時はマスタを参照
+     * @param  string|null  $calcMethod  'monthly_table' | 'computer_special'。null なら基本設定に従う
      */
-    public function monthly(int $socialInsuranceDeductedAmount, int $dependents = 0, string $taxTable = 'kou', ?string $effectiveDate = null): int
-    {
+    public function monthly(
+        int $socialInsuranceDeductedAmount,
+        int $dependents = 0,
+        string $taxTable = 'kou',
+        ?string $effectiveDate = null,
+        ?string $calcMethod = null,
+    ): int {
         $amount = max(0, $socialInsuranceDeductedAmount);
+        $method = $calcMethod ?? Setting::getValue('income_tax_calc_method', 'monthly_table');
 
-        // マスタ参照（適用日指定時）
+        // 月額表（既定）。該当年分が未登録なら電算機特例へフォールバックする。
+        if ($method !== 'computer_special' && $effectiveDate) {
+            $tax = $this->fromMonthlyTable($amount, $dependents, $taxTable, $effectiveDate);
+            if ($tax !== null) {
+                return $tax;
+            }
+        }
+
+        return $this->fromBrackets($amount, $dependents, $taxTable, $effectiveDate);
+    }
+
+    /** 指定日の月額表で税額を引く。表・該当階級が無ければ null。 */
+    private function fromMonthlyTable(int $amount, int $dependents, string $taxTable, string $effectiveDate): ?int
+    {
+        $table = IncomeTaxMonthlyTable::forDate($effectiveDate);
+        if (! $table) {
+            return null;
+        }
+
+        $table->loadMissing('rows');
+        $tax = $table->taxFor($amount, $dependents, $taxTable);
+        if ($tax === null) {
+            return null;
+        }
+
+        $this->lastSource = 'monthly_table:'.$table->effective_from->toDateString();
+
+        return $tax;
+    }
+
+    /** 電子計算機による計算の特例（係数マスタ→内蔵既定）。 */
+    private function fromBrackets(int $amount, int $dependents, string $taxTable, ?string $effectiveDate): int
+    {
         if ($effectiveDate) {
             $rows = IncomeTaxBracket::forDate($taxTable, $effectiveDate);
             if ($rows->isNotEmpty()) {
-                $this->lastSource = 'table:' . $rows->first()->effective_from->toDateString();
+                $this->lastSource = 'table:'.$rows->first()->effective_from->toDateString();
 
                 $depDeduction = (int) ($rows->firstWhere('dependent_deduction', '!=', null)?->dependent_deduction ?? self::DEPENDENT_DEDUCTION);
                 $taxable = $taxTable === 'otsu' ? $amount : max(0, $amount - $depDeduction * $dependents);

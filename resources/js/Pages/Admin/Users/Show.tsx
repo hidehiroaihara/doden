@@ -422,7 +422,7 @@ function MfViewRow({ label, value, help }: { label: string; value: ReactNode; he
                 <span className="inline-flex items-center gap-1.5">
                     {label}
                     {help && <i className="fa-regular fa-circle-question text-xs text-teal-500" aria-hidden />}
-                </span>
+        </span>
             </th>
             <td className={mfValueCell}>
                 {empty ? <span className="text-gray-300">—</span> : value}
@@ -510,7 +510,7 @@ function MfRadioGroup({
                     {l}
                 </label>
             ))}
-        </div>
+                                </div>
     );
 }
 
@@ -645,7 +645,7 @@ function CommuteRouteEditForm({
                                 <option value="">毎月</option>
                             </select>
                         ) : (
-                            <div>
+                                <div>
                                 <div className="mb-1.5 flex flex-wrap gap-1.5">
                                     {Array.from({ length: 12 }, (_, m) => m + 1).map((m) => {
                                         const on = r.payment_months.includes(m);
@@ -664,9 +664,9 @@ function CommuteRouteEditForm({
                                             </button>
                                         );
                                     })}
-                                </div>
+                                    </div>
                                 <p className="text-xs text-gray-400">未選択の場合は毎月</p>
-                            </div>
+                                </div>
                         )}
                     </MfFormRow>
                     <MfFormRow label="支給額" help>
@@ -739,7 +739,7 @@ function CommuteRouteEditForm({
                                                         </button>
                                                     );
                                                 })}
-                                            </div>
+                            </div>
                                         )}
                                     </MfFormRow>
                                     <MfFormRow label="支給額">
@@ -1300,7 +1300,7 @@ function ResidentTaxSection({ user, payroll, canWrite, options }: { user: User; 
                     <option value="">{pref ? '市区町村を選択' : '先に都道府県を選択'}</option>
                     {cities.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-            </div>
+                            </div>
         );
     };
 
@@ -1373,7 +1373,7 @@ function IncomeTaxSection({ user, payroll, canWrite, options }: { user: User; pa
                             <select className={inputClass} value={s.data.disability_type} onChange={(e) => s.set('disability_type', e.target.value)}>
                                 {Object.entries(options.disabilityTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                             </select>
-                        </div>
+                            </div>
                         <div><label className={fieldLabel}>居住区分</label>
                             <select className={inputClass} value={s.data.residency_type} onChange={(e) => s.set('residency_type', e.target.value)}>
                                 {Object.entries(options.residencyTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -1436,7 +1436,7 @@ function DeductionItemsSection({ user, payroll, canWrite }: { user: User; payrol
                                     value={numInputDisplay(s.data.flat_tax_reduction_total)}
                                     onChange={(e) => s.set('flat_tax_reduction_total', e.target.value === '' ? 0 : Number(e.target.value))} />
                                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">円</span>
-                            </div>
+                    </div>
                         </div>
                         <p className="text-xs text-gray-500">{autoNote}</p>
                     </div>
@@ -1493,7 +1493,7 @@ function DependentSection({ user, dependents, canWrite, options }: { user: User;
                                     <select className={inputClass} value={d.dependent_type} onChange={(e) => patch(i, { dependent_type: e.target.value })}>
                                         {Object.entries(options.dependentTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                                     </select>
-                                </div>
+                            </div>
                                 <div><label className={fieldLabel}>障害者区分</label>
                                     <select className={inputClass} value={d.disability_type} onChange={(e) => patch(i, { disability_type: e.target.value })}>
                                         {Object.entries(options.disabilityTypes).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -2348,13 +2348,13 @@ function SalaryTab({
     };
 
     const num = (k: keyof PayrollData, label: string, suffix = '円') => (
-        <div>
+                            <div>
             <label className={fieldLabel}>{label}</label>
             <div className="relative">
                 <input type="number" min="0" disabled={!editing} className={`${inputClass} disabled:bg-gray-50 disabled:text-gray-500`} value={numInputDisplay(data[k] as number | null)} onChange={(e) => set(k, (e.target.value === '' ? null : Number(e.target.value)) as never)} />
                 <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">{suffix}</span>
-            </div>
-        </div>
+                            </div>
+                        </div>
     );
     const txt = (k: keyof PayrollData, label: string, ph?: string) => (
         <div>
@@ -2377,8 +2377,8 @@ function SalaryTab({
                     <div className="flex items-center gap-2">
                         <button onClick={cancel} className="rounded-lg px-4 py-2 text-sm text-gray-500 transition hover:bg-gray-100">キャンセル</button>
                         <button onClick={save} disabled={processing} className="inline-flex items-center gap-2 rounded-lg bg-teal-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-teal-700 disabled:opacity-50"><i className="fa-solid fa-floppy-disk" /> 保存する</button>
-                    </div>
-                ) : (
+                            </div>
+                        ) : (
                     <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"><i className="fa-solid fa-pen" /> 編集</button>
                 ))}
             </div>
@@ -2486,7 +2486,7 @@ function SalaryTab({
                             >
                                 <i className="fa-solid fa-plus" /> 追加
                             </button>
-                        </div>
+                                        </div>
                     )}
                 </div>
             </div>
@@ -2605,11 +2605,11 @@ function HistoryCard({ histories }: { histories: UserStatusHistory[] }) {
                     <div key={h.id} className="flex flex-wrap items-center gap-2 px-5 py-2.5 text-sm">
                         <span className="text-xs text-gray-400">{h.changed_at}</span>
                         <span className="text-gray-600">{h.from_label}</span>
-                        <i className="fa-solid fa-arrow-right text-[10px] text-gray-400" />
+                                                <i className="fa-solid fa-arrow-right text-[10px] text-gray-400" />
                         <span className="text-gray-800">{h.to_label}</span>
                         {h.changed_by && <span className="text-xs text-gray-300">by {h.changed_by}</span>}
                         {h.note && <span className="text-xs text-gray-400">{h.note}</span>}
-                    </div>
+                                            </div>
                 ))}
             </div>
         </div>
@@ -2687,10 +2687,10 @@ export default function UserShow({ user, payroll, dependents, leaves, histories,
                                                     <i className="fa-solid fa-trash-can" /> この従業員を削除する
                                                 </button>
                             </div>
-                        )}
-                    </div>
+                                            )}
+                                        </div>
                                 )}
-                            </div>
+                                    </div>
                         </div>
 
                         {/* タブ */}
