@@ -32,6 +32,7 @@ class RoundedWorkAggregationTest extends TestCase
         Setting::setValue('default_break_minutes', '0');
         Setting::setValue('break_start_time', null);
         Setting::setValue('break_end_time', null);
+        Setting::setValue('salary_round_mode', 'minutes');
         Setting::setValue('salary_round_minutes', '30');
         Setting::setValue('salary_round_rule', 'floor');
         Setting::setValue('legal_holiday_dows', 'sunday');

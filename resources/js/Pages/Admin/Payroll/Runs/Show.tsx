@@ -46,6 +46,9 @@ interface PeriodRun {
     period_key: string;
     closing_date: string | null;
     payment_date: string | null;
+    selector_label: string;
+    payment_selector_label: string;
+    closing_period_label: string | null;
     status: string;
 }
 
@@ -61,6 +64,10 @@ interface Props {
     run: {
         id: number;
         period_key: string;
+        display_month_label: string;
+        selector_label: string;
+        payment_selector_label: string;
+        closing_period_label: string | null;
         pay_type: string;
         business_location: string | null;
         status: string;
@@ -102,8 +109,11 @@ function fmtJpDate(d: string | null): string {
     return `${y}年${m}月${day}日`;
 }
 
-function periodLabel(r: { period_key: string; payment_date: string | null; closing_date: string | null }): string {
-    const pay = r.payment_date ? `${fmtJpDate(r.payment_date)}支給` : `${r.period_key} 支給`;
+function periodLabel(r: { selector_label?: string; period_key: string; payment_date: string | null; closing_date: string | null; display_month_label?: string }): string {
+    if (r.selector_label) {
+        return r.selector_label;
+    }
+    const pay = r.payment_date ? `${fmtJpDate(r.payment_date)}支給` : `${r.display_month_label ?? r.period_key} 支給`;
     const close = r.closing_date ? `（${fmtJpDate(r.closing_date)}〆）` : '';
     return `${pay}${close}`;
 }
@@ -376,7 +386,7 @@ export default function PayrollRunShow({
 
     return (
         <AdminLayout header={<h2 className="text-xl font-bold text-gray-800">給与計算</h2>}>
-            <Head title={`給与計算 ${run.period_key}`} />
+            <Head title={`給与計算 ${run.display_month_label}`} />
 
             <input ref={importInputRef} type="file" accept=".csv,text/csv" className="hidden" onChange={onImportFile} />
 
@@ -390,8 +400,17 @@ export default function PayrollRunShow({
                                 <i className="fa-solid fa-arrow-left" />
                             </Link>
                             {/* 支給期間セレクタ */}
-                            <Dropdown align="left" panelClass="w-80"
-                                label={<span className="text-base font-bold text-gray-900">{periodLabel(run)}</span>}>
+                            <Dropdown align="left" panelClass="w-[22rem]"
+                                label={(
+                                    <span className="inline-flex flex-wrap items-center gap-2">
+                                        {run.closing_period_label && (
+                                            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
+                                                {run.closing_period_label}
+                                            </span>
+                                        )}
+                                        <span className="text-base font-bold text-gray-900">{run.payment_selector_label}</span>
+                                    </span>
+                                )}>
                                 {(close) => (
                                     <div className="max-h-80 overflow-y-auto">
                                         {periodRuns.map((r) => (
@@ -400,7 +419,12 @@ export default function PayrollRunShow({
                                                 className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition ${
                                                     r.id === run.id ? 'bg-teal-50 text-teal-700' : 'text-gray-700 hover:bg-gray-50'
                                                 }`}>
-                                                <span>{periodLabel(r)}</span>
+                                                <span className="min-w-0">
+                                                    {r.closing_period_label && (
+                                                        <span className="mb-0.5 block text-[11px] font-bold text-slate-600">{r.closing_period_label}</span>
+                                                    )}
+                                                    <span className="block text-sm">{r.payment_selector_label}</span>
+                                                </span>
                                                 {r.status === 'finalized' && <i className="fa-solid fa-check text-xs text-green-500" />}
                                             </button>
                                         ))}

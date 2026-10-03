@@ -38,6 +38,7 @@ class SettingController extends Controller
             // 片方だけの入力を防ぐため、両方揃っている場合のみ after を検証する。
             'break_start_time' => ['nullable', 'date_format:H:i', 'required_with:break_end_time'],
             'break_end_time' => ['nullable', 'date_format:H:i', 'required_with:break_start_time', 'after:break_start_time'],
+            'salary_round_mode' => ['nullable', 'in:time,minutes'],
             'salary_round_minutes' => ['required', 'integer', 'min:1', 'max:60'],
             'salary_round_rule' => ['required', 'in:floor,round,ceil'],
             // 深夜時間の月合計も丸め単位へ揃えるか（OFF で従来の端数あり表示に戻る）
@@ -56,6 +57,7 @@ class SettingController extends Controller
         Setting::setValue('default_break_minutes', $validated['default_break_minutes']);
         Setting::setValue('break_start_time', ($validated['break_start_time'] ?? '') ?: null);
         Setting::setValue('break_end_time', ($validated['break_end_time'] ?? '') ?: null);
+        Setting::setValue('salary_round_mode', $validated['salary_round_mode'] ?? 'time');
         Setting::setValue('salary_round_minutes', $validated['salary_round_minutes']);
         Setting::setValue('salary_round_rule', $validated['salary_round_rule']);
         Setting::setValue('salary_round_night_total', $request->boolean('salary_round_night_total') ? '1' : '0');

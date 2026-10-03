@@ -220,6 +220,7 @@ interface AttendanceSettings {
     default_break_minutes: string | null;
     break_start_time: string | null;
     break_end_time: string | null;
+    salary_round_mode: string | null;
     salary_round_minutes: string | null;
     salary_round_rule: string | null;
     salary_round_night_total: boolean;
@@ -467,6 +468,7 @@ interface WorkSettingsData {
     default_break_minutes: string;
     break_start_time: string;
     break_end_time: string;
+    salary_round_mode: string;
     salary_round_minutes: string;
     salary_round_rule: string;
     salary_round_night_total: boolean;
@@ -566,6 +568,19 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
             {/* 丸め */}
             <div className={cardSection}>
                 {head('fa-calculator', 'bg-blue-100 text-blue-600', '給料計算設定', '勤務時間の丸め単位・ルールを設定します。')}
+                <div className="mb-5">
+                    <label className="mb-1 block text-xs font-medium text-gray-500">丸め方式</label>
+                    <select disabled={!canWrite} className={`w-80 ${input}`}
+                        value={data.salary_round_mode} onChange={(e) => setData('salary_round_mode', e.target.value)}>
+                        <option value="time">打刻時刻を丸める（出勤=切り上げ / 退勤=切り捨て）</option>
+                        <option value="minutes">実労働時間を丸める（従来）</option>
+                    </select>
+                    <p className="mt-1 text-xs text-gray-400">
+                        {data.salary_round_mode === 'time'
+                            ? `例: ${data.salary_round_minutes}分単位で 8:09出勤→8:30、17:15退勤→17:00（ちょうどの打刻はそのまま）。休憩・残業・深夜・遅刻早退は丸め後の時刻で計算します。`
+                            : '打刻時刻はそのままで、シフトごとの実労働時間を下の丸めルールで丸めます。'}
+                    </p>
+                </div>
                 <div className="grid gap-5 sm:grid-cols-2">
                     <div>
                         <label className="mb-1 block text-xs font-medium text-gray-500">計算丸め単位</label>
@@ -574,17 +589,20 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                             {roundOptions.map((m) => <option key={m} value={m}>{m}分</option>)}
                         </select>
                     </div>
-                    <div>
-                        <label className="mb-1 block text-xs font-medium text-gray-500">丸めルール</label>
-                        <select disabled={!canWrite} className={`w-48 ${input}`}
-                            value={data.salary_round_rule} onChange={(e) => setData('salary_round_rule', e.target.value)}>
-                            <option value="floor">切り捨て</option>
-                            <option value="round">四捨五入</option>
-                            <option value="ceil">切り上げ</option>
-                        </select>
-                        <p className="mt-1 text-xs text-gray-400">例: 8:15を30分単位 → 切り捨て8:00 / 四捨五入・切り上げ8:30</p>
-                    </div>
+                    {data.salary_round_mode === 'minutes' && (
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-gray-500">丸めルール</label>
+                            <select disabled={!canWrite} className={`w-48 ${input}`}
+                                value={data.salary_round_rule} onChange={(e) => setData('salary_round_rule', e.target.value)}>
+                                <option value="floor">切り捨て</option>
+                                <option value="round">四捨五入</option>
+                                <option value="ceil">切り上げ</option>
+                            </select>
+                            <p className="mt-1 text-xs text-gray-400">例: 実労働7:45を30分単位 → 切り捨て7:30 / 四捨五入・切り上げ8:00</p>
+                        </div>
+                    )}
                 </div>
+                {data.salary_round_mode === 'minutes' && (
                 <label className="mt-5 flex cursor-pointer items-start gap-3 border-t border-gray-100 pt-4">
                     <input
                         type="checkbox"
@@ -602,6 +620,7 @@ function WorkSettingsTab({ form, partial, onSave, canWrite }: {
                         </span>
                     </span>
                 </label>
+                )}
             </div>
 
             {/* 打刻時の顔写真 */}
@@ -2917,7 +2936,8 @@ export default function PayrollSettingsIndex({ payItems, deductionItems, attenda
         default_break_minutes: attendanceSettings.default_break_minutes ?? '60',
         break_start_time: attendanceSettings.break_start_time ?? '',
         break_end_time: attendanceSettings.break_end_time ?? '',
-        salary_round_minutes: attendanceSettings.salary_round_minutes ?? '15',
+        salary_round_mode: attendanceSettings.salary_round_mode ?? 'time',
+        salary_round_minutes: attendanceSettings.salary_round_minutes ?? '30',
         salary_round_rule: attendanceSettings.salary_round_rule ?? 'floor',
         salary_round_night_total: attendanceSettings.salary_round_night_total ?? true,
         punch_use_photo: attendanceSettings.punch_use_photo ?? false,

@@ -13,6 +13,7 @@ use App\Services\BreakDeduction;
 use App\Services\HolidayCalendar;
 use App\Services\MonthPeriod;
 use App\Services\PhotoStorageService;
+use App\Support\PunchRounding;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -39,15 +40,15 @@ class AttendanceController extends Controller
         $defaultBreakMinutes = (int) Setting::getValue('default_break_minutes', 60);
         $breakStartTime = Setting::getValue('break_start_time', '12:00');
         $breakEndTime = Setting::getValue('break_end_time', '13:00');
-        $salaryRoundMinutes = (int) Setting::getValue('salary_round_minutes', 15);
-        $salaryRoundRule = Setting::getValue('salary_round_rule', 'floor');
+        $rounding = PunchRounding::settings();
         $hasSchedule = (bool) ($workStartTime && $workEndTime && $workHoursPerDay);
 
         $userBreakDefault = $user->break_minutes ?? $defaultBreakMinutes;
 
-        // 各打刻に computed_break_minutes を付与（休憩ボタン記録 > 手入力 > 時間帯計算）
+        // 各打刻に computed_break_minutes（休憩ボタン記録 > 手入力 > 時間帯計算）と
+        // 給与計算用の丸め後出退勤・丸め後実労働を付与する
         $attendances = $attendances->map(function ($att) use (
-            $breakStartTime, $breakEndTime, $userBreakDefault
+            $breakStartTime, $breakEndTime, $userBreakDefault, $rounding
         ) {
             if ($att->clock_in_at && $att->clock_out_at) {
                 $att->computed_break_minutes = BreakDeduction::resolveWithLimit(
@@ -60,8 +61,15 @@ class AttendanceController extends Controller
                     $userBreakDefault,
                     $att->attendanceBreaks ?? new Collection(),
                 );
+                $shift = $this->roundedShift($att, $rounding, $breakStartTime, $breakEndTime, $userBreakDefault);
+                $att->rounded_clock_in_at = $shift['in']->toIso8601String();
+                $att->rounded_clock_out_at = $shift['out']->toIso8601String();
+                $att->rounded_work_minutes = $shift['net'];
             } else {
                 $att->computed_break_minutes = null;
+                $att->rounded_clock_in_at = null;
+                $att->rounded_clock_out_at = null;
+                $att->rounded_work_minutes = null;
             }
             return $att;
         });
@@ -108,17 +116,15 @@ class AttendanceController extends Controller
                 $clockIn = Carbon::parse($att->clock_in_at);
                 $clockOut = Carbon::parse($att->clock_out_at);
                 $dayNet += max(0, $clockIn->diffInMinutes($clockOut) - $breakMin);
-                $totalRoundedMinutes += $this->roundMinutes(
-                    max(0, $clockIn->diffInMinutes($clockOut) - $breakMin),
-                    $salaryRoundMinutes,
-                    $salaryRoundRule,
-                );
+                $totalRoundedMinutes += (int) $att->rounded_work_minutes;
 
-                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
-                    $firstClockIn = $clockIn;
+                // 遅刻・早退は丸め後の出退勤で判定（従来モードでは打刻そのまま）
+                [$judgeIn, $judgeOut] = PunchRounding::interval($clockIn, $clockOut, $rounding);
+                if ($firstClockIn === null || $judgeIn->lt($firstClockIn)) {
+                    $firstClockIn = $judgeIn;
                 }
-                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
-                    $lastClockOut = $clockOut;
+                if ($lastClockOut === null || $judgeOut->gt($lastClockOut)) {
+                    $lastClockOut = $judgeOut;
                 }
             }
 
@@ -176,8 +182,8 @@ class AttendanceController extends Controller
                 'work_hours_per_day' => (int) $workHoursPerDay,
             ] : null,
             'defaultBreakMinutes' => $defaultBreakMinutes,
-            'salaryRoundMinutes' => $salaryRoundMinutes,
-            'salaryRoundRule' => $salaryRoundRule,
+            'salaryRoundMode' => $rounding['mode'],
+            'salaryRoundMinutes' => $rounding['unit'],
             'calendarFrom' => $dateFrom ?? null,
             'calendarTo' => $dateTo ?? null,
             // 日付ごとの休日区分・祝日名（カレンダー表示・打刻なしの日でも休日が分かるように）
@@ -796,8 +802,7 @@ class AttendanceController extends Controller
         $breakStartTime = Setting::getValue('break_start_time', '12:00');
         $breakEndTime = Setting::getValue('break_end_time', '13:00');
         $defaultBreakMinutes = (int) Setting::getValue('default_break_minutes', 60);
-        $salaryRoundMinutes = (int) Setting::getValue('salary_round_minutes', 15);
-        $salaryRoundRule = Setting::getValue('salary_round_rule', 'floor');
+        $rounding = PunchRounding::settings();
         $workStartTime = Setting::getValue('work_start_time');
         $workEndTime = Setting::getValue('work_end_time');
         $workHoursPerDay = Setting::getValue('work_hours_per_day');
@@ -827,7 +832,7 @@ class AttendanceController extends Controller
         // 最大休憩回数を算出（動的列数）
         $maxBreaks = $attendances->max(fn($a) => $a->attendanceBreaks->count()) ?? 0;
 
-        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '出勤店舗', '退勤店舗', '出勤時刻', '退勤時刻', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
+        $headers = ['ユーザー名', '顧客No', '勤務日', '曜日', '出勤店舗', '退勤店舗', '出勤時刻', '退勤時刻', '丸め後出勤', '丸め後退勤', '休憩時間(分)', '総拘束時間', '実労働時間', '丸め後労働時間'];
         if ($hasSchedule) {
             $headers[] = '遅刻';
             $headers[] = '早退';
@@ -845,7 +850,7 @@ class AttendanceController extends Controller
                 $attendances,
                 $breakStartTime, $breakEndTime,
                 $csvUser?->break_minutes ?? $defaultBreakMinutes,
-                $salaryRoundMinutes, $salaryRoundRule,
+                $rounding,
                 $workStartTime, $workEndTime, $workHoursPerDay, $hasSchedule,
             );
         }
@@ -853,7 +858,7 @@ class AttendanceController extends Controller
         return response()->streamDownload(function () use (
             $attendances, $attendanceMap, $calendarDays, $csvUser, $isUserSpecific,
             $breakStartTime, $breakEndTime, $defaultBreakMinutes,
-            $salaryRoundMinutes, $salaryRoundRule,
+            $rounding,
             $workStartTime, $workEndTime, $workHoursPerDay, $hasSchedule,
             $weekdays, $headers, $fmtHM, $maxBreaks, $csvSummary
         ) {
@@ -894,7 +899,7 @@ class AttendanceController extends Controller
             $buildRow = function (?Attendance $a, ?string $dateStr) use (
                 $csvUser, $isUserSpecific,
                 $breakStartTime, $breakEndTime, $defaultBreakMinutes,
-                $salaryRoundMinutes, $salaryRoundRule,
+                $rounding,
                 $workStartTime, $workEndTime, $workHoursPerDay, $hasSchedule,
                 $weekdays, $fmtHM, $maxBreaks
             ): array {
@@ -906,6 +911,8 @@ class AttendanceController extends Controller
                 $totalTimeStr = '';
                 $workingTimeStr = '';
                 $roundedTimeStr = '';
+                $roundedInStr = '';
+                $roundedOutStr = '';
                 $lateStr = '';
                 $earlyStr = '';
                 $overtimeStr = '';
@@ -931,26 +938,20 @@ class AttendanceController extends Controller
                     $totalTimeStr = $fmtHM($totalMinutes);
                     $netMinutes = max(0, $totalMinutes - $breakMin);
                     $workingTimeStr = $fmtHM($netMinutes);
-                    $roundedMinutes = (function () use ($netMinutes, $salaryRoundMinutes, $salaryRoundRule) {
-                        if ($salaryRoundMinutes <= 0) return $netMinutes;
-                        $q = $netMinutes / $salaryRoundMinutes;
-                        return match ($salaryRoundRule) {
-                            'ceil' => (int) ceil($q) * $salaryRoundMinutes,
-                            'round' => (int) round($q) * $salaryRoundMinutes,
-                            default => (int) floor($q) * $salaryRoundMinutes,
-                        };
-                    })();
-                    $roundedTimeStr = $fmtHM($roundedMinutes);
+                    $shift = $this->roundedShift($a, $rounding, $breakStartTime, $breakEndTime, $userBreakLimit);
+                    $roundedTimeStr = $fmtHM($shift['net']);
+                    $roundedInStr = $shift['in']->format('H:i');
+                    $roundedOutStr = $shift['out']->format('H:i');
 
                     if ($hasSchedule) {
                         $dateKey = $dayCarbon->format('Y-m-d');
                         $schedStart = Carbon::parse("{$dateKey} {$workStartTime}");
                         $schedEnd = Carbon::parse("{$dateKey} {$workEndTime}");
-                        if ($a->clock_in_at->gt($schedStart)) {
-                            $lateStr = $fmtHM($schedStart->diffInMinutes($a->clock_in_at));
+                        if ($shift['in']->gt($schedStart)) {
+                            $lateStr = $fmtHM($schedStart->diffInMinutes($shift['in']));
                         }
-                        if ($a->clock_out_at->lt($schedEnd)) {
-                            $earlyStr = $fmtHM($a->clock_out_at->diffInMinutes($schedEnd));
+                        if ($shift['out']->lt($schedEnd)) {
+                            $earlyStr = $fmtHM($shift['out']->diffInMinutes($schedEnd));
                         }
                         $scheduledMin = (int) $workHoursPerDay;
                         if ($netMinutes > $scheduledMin) {
@@ -975,6 +976,8 @@ class AttendanceController extends Controller
                     $outStoreName,
                     $a?->clock_in_at?->format('H:i') ?? '',
                     $a?->clock_out_at?->format('H:i') ?? '',
+                    $roundedInStr,
+                    $roundedOutStr,
                     ($a && $a->clock_in_at && $a->clock_out_at) ? $breakMin : '',
                     $totalTimeStr,
                     $workingTimeStr,
@@ -1291,8 +1294,7 @@ class AttendanceController extends Controller
         ?string $breakStartTime,
         ?string $breakEndTime,
         int $userBreakDefault,
-        int $salaryRoundMinutes,
-        string $salaryRoundRule,
+        array $rounding,
         ?string $workStartTime,
         ?string $workEndTime,
         ?string $workHoursPerDay,
@@ -1347,13 +1349,14 @@ class AttendanceController extends Controller
                 $netMin = max(0, $clockIn->diffInMinutes($clockOut) - $breakMin);
                 $dayNet += $netMin;
                 $dayBreak += $breakMin;
-                $totalRoundedMinutes += $this->roundMinutes($netMin, $salaryRoundMinutes, $salaryRoundRule);
+                $shift = $this->roundedShift($att, $rounding, $breakStartTime, $breakEndTime, $userBreakDefault);
+                $totalRoundedMinutes += $shift['net'];
 
-                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
-                    $firstClockIn = $clockIn;
+                if ($firstClockIn === null || $shift['in']->lt($firstClockIn)) {
+                    $firstClockIn = $shift['in'];
                 }
-                if ($lastClockOut === null || $clockOut->gt($lastClockOut)) {
-                    $lastClockOut = $clockOut;
+                if ($lastClockOut === null || $shift['out']->gt($lastClockOut)) {
+                    $lastClockOut = $shift['out'];
                 }
             }
 
@@ -1399,23 +1402,30 @@ class AttendanceController extends Controller
     }
 
     /**
-     * 実労働分を丸め単位で丸める。
-     * @param int $minutes 実労働時間（分）
-     * @param int $unit 丸め単位（分）
-     * @param string $rule floor=切り捨て, round=四捨五入, ceil=切り上げ
+     * 給与計算用の1シフト（丸め後出退勤・丸め後実労働）。
+     * time モードは丸め後出退勤に対して休憩を控除、従来モードは打刻そのままの実労働分を丸める。
+     *
+     * @param  array{mode: string, unit: int, rule: string}  $rounding
+     * @return array{in: Carbon, out: Carbon, net: int}
      */
-    private function roundMinutes(int $minutes, int $unit, string $rule): int
+    private function roundedShift(Attendance $att, array $rounding, ?string $breakStartTime, ?string $breakEndTime, int $userBreakLimit): array
     {
-        if ($unit <= 0) {
-            return $minutes;
-        }
+        $rawIn = Carbon::parse($att->clock_in_at);
+        $rawOut = Carbon::parse($att->clock_out_at);
+        [$in, $out] = PunchRounding::interval($rawIn, $rawOut, $rounding);
 
-        $quotient = $minutes / $unit;
+        $breakMin = BreakDeduction::resolveWithLimit(
+            $att->break_minutes,
+            $in,
+            $out,
+            $att->work_date->format('Y-m-d'),
+            $breakStartTime,
+            $breakEndTime,
+            $userBreakLimit,
+            $att->attendanceBreaks ?? new Collection(),
+        );
+        $net = max(0, (int) $in->diffInMinutes($out) - $breakMin);
 
-        return match ($rule) {
-            'ceil' => (int) ceil($quotient) * $unit,
-            'round' => (int) round($quotient) * $unit,
-            default => (int) floor($quotient) * $unit,
-        };
+        return ['in' => $in, 'out' => $out, 'net' => PunchRounding::roundNetMinutes($net, $rounding)];
     }
 }

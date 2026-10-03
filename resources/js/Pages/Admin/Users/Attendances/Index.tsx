@@ -36,6 +36,10 @@ interface AttendanceItem {
     clock_out_photo_path: string | null;
     break_minutes: number | null;
     computed_break_minutes: number | null;
+    /** 給与計算用の丸め後出退勤・実労働（サーバー算出） */
+    rounded_clock_in_at: string | null;
+    rounded_clock_out_at: string | null;
+    rounded_work_minutes: number | null;
     attendance_breaks?: BreakRecord[];
     department?: { id: number; name: string } | null;
     clock_out_department?: { id: number; name: string } | null;
@@ -263,8 +267,8 @@ interface Props {
     hasSchedule: boolean;
     scheduleInfo: { work_start_time: string; work_end_time: string; work_hours_per_day: number } | null;
     defaultBreakMinutes: number;
+    salaryRoundMode: 'time' | 'minutes';
     salaryRoundMinutes: number;
-    salaryRoundRule: string;
     calendarFrom: string | null;
     calendarTo: string | null;
     /** 日付ごとの休日区分・祝日名（年度設定に基づく）。 */
@@ -435,7 +439,7 @@ function SummaryCard({ icon, iconBg, label, value }: { icon: string; iconBg: str
     );
 }
 
-export default function UserAttendancesIndex({ user, attendances, summary, hasSchedule, scheduleInfo, defaultBreakMinutes, salaryRoundMinutes, salaryRoundRule, calendarFrom, calendarTo, holidays, filters }: Props) {
+export default function UserAttendancesIndex({ user, attendances, summary, hasSchedule, scheduleInfo, defaultBreakMinutes, salaryRoundMode, calendarFrom, calendarTo, holidays, filters }: Props) {
     const canWrite = useAdminPermission('attendances');
     const [form, setForm] = useState({ date_from: filters.date_from || '', date_to: filters.date_to || '', month: filters.month || '', year: filters.year || '' });
     const [breakModal, setBreakModal] = useState<{ attendanceId: number; breaks: BreakRecord[] } | null>(null);
@@ -576,18 +580,13 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
         return Math.max(0, gross - brk);
     };
 
-    const roundMinutes = (minutes: number, unit: number, rule: string): number => {
-        if (unit <= 0) return minutes;
-        const q = minutes / unit;
-        if (rule === 'ceil') return Math.ceil(q) * unit;
-        if (rule === 'round') return Math.round(q) * unit;
-        return Math.floor(q) * unit;
-    };
+    const showRoundedTimes = salaryRoundMode === 'time';
 
-    const calcRoundedMinutes = (a: AttendanceItem | null) => {
-        const net = calcNetMinutes(a);
-        if (net === null) return null;
-        return roundMinutes(net, salaryRoundMinutes, salaryRoundRule);
+    /** 丸め後出退勤が打刻と異なるときのみ表示用の時刻を返す。 */
+    const roundedTimeIfChanged = (raw: string | null, rounded: string | null) => {
+        if (!showRoundedTimes || !raw || !rounded) return null;
+        const r = formatTime(rounded);
+        return r !== formatTime(raw) ? r : null;
     };
 
     const calcOvertime = (a: AttendanceItem | null) => {
@@ -597,14 +596,15 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
         return Math.max(0, net - scheduleInfo.work_hours_per_day);
     };
 
+    // 遅刻・早退は給与計算と同じく丸め後の出退勤で判定（退勤前は打刻そのまま）
     const isLate = (a: AttendanceItem | null) => {
         if (!scheduleInfo || !a?.clock_in_at) return false;
-        return formatTime(a.clock_in_at) > scheduleInfo.work_start_time;
+        return formatTime(a.rounded_clock_in_at ?? a.clock_in_at) > scheduleInfo.work_start_time;
     };
 
     const isEarlyLeave = (a: AttendanceItem | null) => {
         if (!scheduleInfo || !a?.clock_out_at) return false;
-        return formatTime(a.clock_out_at) < scheduleInfo.work_end_time;
+        return formatTime(a.rounded_clock_out_at ?? a.clock_out_at) < scheduleInfo.work_end_time;
     };
 
     const formatDate = (dateStr: string) => {
@@ -758,7 +758,9 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                     return rows.map((a, shiftIdx) => {
                                     const missing = isMissingClockOut(a);
                                     const net = calcNetMinutes(a);
-                                    const rounded = calcRoundedMinutes(a);
+                                    const rounded = a?.rounded_work_minutes ?? null;
+                                    const roundedIn = roundedTimeIfChanged(a?.clock_in_at ?? null, a?.rounded_clock_in_at ?? null);
+                                    const roundedOut = roundedTimeIfChanged(a?.clock_out_at ?? null, a?.rounded_clock_out_at ?? null);
                                     const ot = calcOvertime(a);
                                     const late = isLate(a);
                                     const early = isEarlyLeave(a);
@@ -817,17 +819,27 @@ export default function UserAttendancesIndex({ user, attendances, summary, hasSc
                                             {/* 出勤 */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">
                                                 {a?.clock_in_at ? (
-                                                    <span className={`font-mono text-xs ${late ? 'text-yellow-600 font-bold' : 'text-green-600'}`}>
-                                                        {formatTime(a.clock_in_at)}
-                                                    </span>
+                                                    <>
+                                                        <span className={`font-mono text-xs ${late ? 'text-yellow-600 font-bold' : 'text-green-600'}`}>
+                                                            {formatTime(a.clock_in_at)}
+                                                        </span>
+                                                        {roundedIn && (
+                                                            <span className="block font-mono text-[10px] text-teal-700" title="給与計算用（丸め後）">→{roundedIn}</span>
+                                                        )}
+                                                    </>
                                                 ) : <span className="text-gray-300">—</span>}
                                             </td>
                                             {/* 退勤 */}
                                             <td className="px-2 py-1.5 text-center whitespace-nowrap">
                                                 {a?.clock_out_at ? (
-                                                    <span className={`font-mono text-xs ${early ? 'text-orange-600 font-bold' : 'text-blue-600'}`}>
-                                                        {formatTime(a.clock_out_at)}
-                                                    </span>
+                                                    <>
+                                                        <span className={`font-mono text-xs ${early ? 'text-orange-600 font-bold' : 'text-blue-600'}`}>
+                                                            {formatTime(a.clock_out_at)}
+                                                        </span>
+                                                        {roundedOut && (
+                                                            <span className="block font-mono text-[10px] text-teal-700" title="給与計算用（丸め後）">→{roundedOut}</span>
+                                                        )}
+                                                    </>
                                                 ) : <span className="text-gray-300">—</span>}
                                             </td>
                                             {/* 休憩 */}

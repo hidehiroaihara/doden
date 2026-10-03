@@ -6,6 +6,8 @@ import { useState } from 'react';
 interface RunRow {
     id: number;
     period_key: string;
+    display_month_label: string;
+    closing_period_label: string | null;
     pay_type: string;
     business_location: string | null;
     status: string;
@@ -81,7 +83,8 @@ export default function PayrollRunsIndex({ runs, options }: Props) {
                         <form onSubmit={submit} className="mb-6 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-100">
                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                                 <div>
-                                    <label className="mb-1 block text-xs font-medium text-gray-500">対象月</label>
+                                    <label className="mb-1 block text-xs font-medium text-gray-500">勤怠締め月（period_key）</label>
+                                    <p className="mb-2 text-[11px] text-gray-400">例: 9月勤務・10月25日支給 → 2026-09。明細表記は支給月（10月分）になります。</p>
                                     <input type="month" className="w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-teal-500 focus:ring-teal-500"
                                         value={data.period_key} onChange={(e) => setData('period_key', e.target.value)} />
                                     {errors.period_key && <p className="mt-1 text-xs text-red-600">{errors.period_key}</p>}
@@ -141,8 +144,11 @@ export default function PayrollRunsIndex({ runs, options }: Props) {
                                             <tr key={r.id} className="hover:bg-gray-50">
                                                 <td className="px-4 py-3 text-sm font-medium text-gray-900">
                                                     <Link href={route('admin.payroll.runs.show', r.id)} className="hover:text-teal-700">
-                                                        {r.period_key}
+                                                        {r.display_month_label}
                                                     </Link>
+                                                    {r.closing_period_label && (
+                                                        <div className="text-[11px] font-semibold text-slate-600">{r.closing_period_label}</div>
+                                                    )}
                                                 </td>
                                                 <td className="px-4 py-3 text-sm text-gray-600">{PAY_TYPE[r.pay_type] ?? r.pay_type}</td>
                                                 <td className="px-4 py-3 text-sm text-gray-600">{r.business_location ?? '全事業所'}</td>

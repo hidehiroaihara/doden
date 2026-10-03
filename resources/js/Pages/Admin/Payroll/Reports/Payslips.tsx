@@ -37,6 +37,8 @@ interface SlipData {
     id: number;
     alignRows: number;
     columnMinHeight: number;
+    payPanelHeight: number;
+    relatedBlockHeight: number;
     title: string;
     paymentDate: string | null;
     targetPeriod: string | null;
@@ -45,7 +47,7 @@ interface SlipData {
     department: string | null;
     employeeNo: string | number | null;
     showAttendance: boolean;
-    attendances: { name: string; value: string }[];
+    attendances: { name: string; nameHtml?: string; value: string }[];
     earnings: { name: string; amount: number }[];
     deductions: { name: string; amount: number }[];
     totalEarnings: number;
@@ -468,18 +470,36 @@ const STRIPE = '#eef4fb';
 const TOTAL_BG = '#dbe6f4';
 const BORDER = '#c3d0e0';
 
+/** 勤怠項目名：「（…）」の手前で改行し、数値＋単位が折り返されないようにする。 */
+function PayslipItemLabel({ name }: { name: string }) {
+    const m = name.match(/^(.+?)（(.+?)）$/);
+    if (m) {
+        return (
+            <span className="min-w-0 flex-1 leading-snug text-gray-700">
+                {m[1]}
+                <br />
+                <span className="text-[9px]">（{m[2]}）</span>
+            </span>
+        );
+    }
+
+    return <span className="min-w-0 flex-1 text-gray-700">{name}</span>;
+}
+
 function Column({
     title,
     items,
     total,
     minHeight,
     className = '',
+    wrapAttendanceLabels = false,
 }: {
     title: string;
     items: { name: string; value: string }[];
     total?: { name: string; value: string };
     minHeight?: number;
     className?: string;
+    wrapAttendanceLabels?: boolean;
 }) {
     return (
         <div
@@ -489,16 +509,20 @@ function Column({
             <div className="shrink-0 px-2 py-1.5 text-center text-[11px] font-bold text-white" style={{ background: HEAD }}>{title}</div>
             <div className="flex min-h-0 flex-1 flex-col text-[10px] leading-snug">
                 {items.map((it, i) => (
-                    <div key={i} className="flex shrink-0 justify-between px-2 py-1.5" style={{ background: i % 2 === 0 ? STRIPE : undefined }}>
-                        <span className="text-gray-700">{it.name}</span>
-                        <span className="tabular-nums text-gray-900">{it.value}</span>
+                    <div key={i} className="flex shrink-0 gap-1.5 px-2 py-1.5" style={{ background: i % 2 === 0 ? STRIPE : undefined }}>
+                        {wrapAttendanceLabels ? (
+                            <PayslipItemLabel name={it.name} />
+                        ) : (
+                            <span className="min-w-0 flex-1 text-gray-700">{it.name}</span>
+                        )}
+                        <span className="shrink-0 whitespace-nowrap tabular-nums text-gray-900">{it.value}</span>
                     </div>
                 ))}
                 <div className="min-h-0 flex-1" aria-hidden="true" />
                 {total && (
-                    <div className="flex shrink-0 justify-between border-t px-2 py-1.5 font-bold" style={{ borderColor: '#b8c9e0', background: TOTAL_BG }}>
-                        <span className="text-gray-700">{total.name}</span>
-                        <span className="tabular-nums text-gray-900">{total.value}</span>
+                    <div className="flex shrink-0 gap-1.5 border-t px-2 py-1.5 font-bold" style={{ borderColor: '#b8c9e0', background: TOTAL_BG }}>
+                        <span className="min-w-0 flex-1 text-gray-700">{total.name}</span>
+                        <span className="shrink-0 whitespace-nowrap tabular-nums text-gray-900">{total.value}</span>
                     </div>
                 )}
             </div>
@@ -536,12 +560,13 @@ function PayslipDocument({ slip }: { slip: SlipData }) {
 
             <hr className="mb-3 mt-1 border-t-2" style={{ borderColor: NAVY }} />
 
-            <div className="grid grid-cols-4 items-stretch gap-1.5">
+            <div className={`grid items-stretch gap-1.5 ${slip.showAttendance ? 'grid-cols-4' : 'grid-cols-3'}`}>
                 {slip.showAttendance && (
                     <Column
                         title="勤怠"
                         items={slip.attendances.length ? slip.attendances : [{ name: '—', value: '' }]}
                         minHeight={slip.columnMinHeight}
+                        wrapAttendanceLabels
                     />
                 )}
                 <Column
@@ -556,15 +581,19 @@ function PayslipDocument({ slip }: { slip: SlipData }) {
                     total={{ name: '控除合計', value: fmt(slip.totalDeductions) }}
                     minHeight={slip.columnMinHeight}
                 />
-                <div className="flex h-full flex-col gap-1.5">
+                <div className="flex flex-col gap-1.5" style={{ height: slip.columnMinHeight }}>
                     <Column
                         title="当月支払"
                         items={slip.payments.map((p) => ({ name: p.name, value: fmt(p.amount) }))}
-                        minHeight={slip.columnMinHeight}
-                        className="flex-1"
+                        minHeight={slip.payPanelHeight}
                     />
                     {slip.relatedInfo.length > 0 && (
-                        <Column title="給与関連情報" items={slip.relatedInfo.map((r) => ({ name: r.label, value: r.value }))} />
+                        <Column
+                            title="給与関連情報"
+                            items={slip.relatedInfo.map((r) => ({ name: r.label, value: r.value }))}
+                            minHeight={slip.relatedBlockHeight - 6}
+                            className="shrink-0"
+                        />
                     )}
                 </div>
             </div>

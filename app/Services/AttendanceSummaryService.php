@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Attendance;
 use App\Models\Setting;
 use App\Models\User;
+use App\Support\PunchRounding;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -148,6 +149,7 @@ class AttendanceSummaryService
         $holidayThreshold = $settings['hasSchedule']
             ? (int) $settings['workHoursPerDay']
             : self::STATUTORY_DAILY_MINUTES;
+        $timeMode = PunchRounding::isTimeMode($settings['rounding']);
 
         foreach ($byWorkDate as $dateStr => $dayAttendances) {
             usort($dayAttendances, fn ($a, $b) => $a->clock_in_at <=> $b->clock_in_at);
@@ -165,37 +167,30 @@ class AttendanceSummaryService
             foreach ($dayAttendances as $att) {
                 $clockIn = Carbon::parse($att->clock_in_at);
                 $clockOut = Carbon::parse($att->clock_out_at);
-                $breakMin = BreakDeduction::resolveWithLimit(
-                    $att->break_minutes,
-                    $clockIn,
-                    $clockOut,
-                    $dateStr,
-                    $settings['breakStartTime'],
-                    $settings['breakEndTime'],
-                    $user->break_minutes ?? $settings['defaultBreakMinutes'],
-                    $att->attendanceBreaks,
-                );
+                [$breakMin, $breaksList, $netMinutes] = $this->shiftWork($att, $clockIn, $clockOut, $dateStr, $user, $settings);
 
-                // 遅刻・早退は打刻時刻そのもので判定するため、丸め前の退勤時刻を保持する。
-                $rawClockOut = $clockOut->copy();
+                // 遅刻・早退の判定に使う出退勤（time モードは丸め後、従来モードは打刻そのまま）
+                [$judgeIn, $judgeOut] = PunchRounding::interval($clockIn, $clockOut, $settings['rounding']);
 
-                $grossMinutes = (int) $clockIn->diffInMinutes($clockOut);
-                $netMinutes = max(0, $grossMinutes - $breakMin);
-                $breaksList = $this->breakIntervals($att, $clockIn, $clockOut, $breakMin, $settings);
-
-                $roundedNet = self::roundMinutes(
-                    $netMinutes,
-                    $settings['salaryRoundMinutes'],
-                    $settings['salaryRoundRule'],
-                );
-                $totals['total_rounded_minutes'] += $roundedNet;
-
-                // 丸め後モードでは、丸めで増減した分を勤務終了側にずらした実効退勤時刻で集計する。
-                // これにより区分（所定内/所定外/法定外）と深夜が丸め後の実労働と整合する。
-                if ($useRoundedWork && $roundedNet !== $netMinutes) {
-                    $clockOut = $this->shiftClockOutToNet($clockIn, $clockOut, $breaksList, $netMinutes, $roundedNet);
-                    $netMinutes = $roundedNet;
+                if ($timeMode) {
+                    [$roundedBreak, $roundedBreaks, $roundedNet] = $this->shiftWork($att, $judgeIn, $judgeOut, $dateStr, $user, $settings);
+                    if ($useRoundedWork) {
+                        $clockIn = $judgeIn->copy();
+                        $clockOut = $judgeOut->copy();
+                        $breakMin = $roundedBreak;
+                        $breaksList = $roundedBreaks;
+                        $netMinutes = $roundedNet;
+                    }
+                } else {
+                    $roundedNet = PunchRounding::roundNetMinutes($netMinutes, $settings['rounding']);
+                    // 丸めで増減した分を勤務終了側にずらした実効退勤時刻で集計する。
+                    // これにより区分（所定内/所定外/法定外）と深夜が丸め後の実労働と整合する。
+                    if ($useRoundedWork && $roundedNet !== $netMinutes) {
+                        $clockOut = $this->shiftClockOutToNet($clockIn, $clockOut, $breaksList, $netMinutes, $roundedNet);
+                        $netMinutes = $roundedNet;
+                    }
                 }
+                $totals['total_rounded_minutes'] += $roundedNet;
 
                 $nightMin = $this->nightMinutes($clockIn, $clockOut);
 
@@ -240,11 +235,11 @@ class AttendanceSummaryService
 
                 $priorNet += $netMinutes;
 
-                if ($firstClockIn === null || $clockIn->lt($firstClockIn)) {
-                    $firstClockIn = $clockIn;
+                if ($firstClockIn === null || $judgeIn->lt($firstClockIn)) {
+                    $firstClockIn = $judgeIn;
                 }
-                if ($lastClockOut === null || $rawClockOut->gt($lastClockOut)) {
-                    $lastClockOut = $rawClockOut;
+                if ($lastClockOut === null || $judgeOut->gt($lastClockOut)) {
+                    $lastClockOut = $judgeOut;
                 }
             }
 
@@ -301,11 +296,36 @@ class AttendanceSummaryService
         $totals['within_statutory_minutes'] = max(0, $totals['total_work_minutes'] - $totals['statutory_overtime_minutes']);
         $totals['weekday_within_statutory_minutes'] = max(0, $totals['weekday_work_minutes'] - $totals['weekday_statutory_overtime_minutes']);
 
-        if ($useRoundedWork && $settings['salaryRoundNightTotal']) {
+        // time モードは出退勤がグリッド上にあるため、月合計の追加丸めは行わない（二重丸め防止）
+        if ($useRoundedWork && ! $timeMode && $settings['salaryRoundNightTotal']) {
             $this->roundNightTotals($totals, $settings);
         }
 
         return $totals;
+    }
+
+    /**
+     * 1シフトの休憩分・休憩区間・純労働分を [in, out] に対して求める。
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array{0: int, 1: list<array{0: Carbon, 1: Carbon}>, 2: int}
+     */
+    private function shiftWork(Attendance $att, Carbon $in, Carbon $out, string $dateStr, User $user, array $settings): array
+    {
+        $breakMin = BreakDeduction::resolveWithLimit(
+            $att->break_minutes,
+            $in,
+            $out,
+            $dateStr,
+            $settings['breakStartTime'],
+            $settings['breakEndTime'],
+            $user->break_minutes ?? $settings['defaultBreakMinutes'],
+            $att->attendanceBreaks,
+        );
+        $breaks = $this->breakIntervals($att, $in, $out, $breakMin, $settings);
+        $net = max(0, (int) $in->diffInMinutes($out) - $breakMin);
+
+        return [$breakMin, $breaks, $net];
     }
 
     /**
@@ -750,8 +770,9 @@ class AttendanceSummaryService
             'defaultBreakMinutes' => (int) Setting::getValue('default_break_minutes', '60'),
             'breakStartTime' => Setting::getValue('break_start_time', '12:00'),
             'breakEndTime' => Setting::getValue('break_end_time', '13:00'),
-            'salaryRoundMinutes' => (int) Setting::getValue('salary_round_minutes', 15),
+            'salaryRoundMinutes' => (int) Setting::getValue('salary_round_minutes', 30),
             'salaryRoundRule' => Setting::getValue('salary_round_rule', 'floor'),
+            'rounding' => PunchRounding::settings(),
             // 深夜時間の月合計も丸め単位へ揃えるか。'0' にすると丸め前（端数あり）へ戻る。
             'salaryRoundNightTotal' => Setting::getValue('salary_round_night_total', '1') !== '0',
             'hasSchedule' => (bool) ($workStartTime && $workEndTime && $workHoursPerDay),
@@ -792,15 +813,6 @@ class AttendanceSummaryService
 
     public static function roundMinutes(int $minutes, int $unit, string $rule): int
     {
-        if ($unit <= 0) {
-            return $minutes;
-        }
-        $quotient = $minutes / $unit;
-
-        return match ($rule) {
-            'ceil' => (int) ceil($quotient) * $unit,
-            'round' => (int) round($quotient) * $unit,
-            default => (int) floor($quotient) * $unit,
-        };
+        return PunchRounding::roundMinutes($minutes, $unit, $rule);
     }
 }

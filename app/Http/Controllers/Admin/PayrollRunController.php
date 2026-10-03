@@ -47,6 +47,8 @@ class PayrollRunController extends Controller
             ->map(fn (PayrollRun $r) => [
                 'id' => $r->id,
                 'period_key' => $r->period_key,
+                'display_month_label' => \App\Support\PayrollRunDates::displayMonthLabel($r),
+                'closing_period_label' => \App\Support\PayrollRunDates::closingPeriodLabel($r),
                 'pay_type' => $r->pay_type,
                 'business_location' => $r->businessLocation?->name,
                 'status' => $r->status,
@@ -83,8 +85,15 @@ class PayrollRunController extends Controller
                 ->with('info', '同じ期間・事業所のバッチが既に存在します。');
         }
 
+        $dates = $validated['pay_type'] === 'salary' && empty($validated['payment_date'])
+            ? \App\Support\PayrollRunDates::datesForPeriodKey($validated['period_key'])
+            : null;
+
         $run = PayrollRun::create([
             ...$validated,
+            'closing_date' => $dates['closing_date'] ?? null,
+            'payment_date' => $validated['payment_date'] ?? ($dates['payment_date'] ?? null),
+            'publish_date' => $dates['publish_date'] ?? null,
             'status' => 'draft',
         ]);
 
@@ -114,6 +123,10 @@ class PayrollRunController extends Controller
             'run' => [
                 'id' => $run->id,
                 'period_key' => $run->period_key,
+                'display_month_label' => \App\Support\PayrollRunDates::displayMonthLabel($run),
+                'selector_label' => \App\Support\PayrollRunDates::selectorLabel($run),
+                'payment_selector_label' => \App\Support\PayrollRunDates::paymentSelectorLabel($run),
+                'closing_period_label' => \App\Support\PayrollRunDates::closingPeriodLabel($run),
                 'pay_type' => $run->pay_type,
                 'business_location' => $run->businessLocation?->name,
                 'business_location_id' => $run->business_location_id,
@@ -496,6 +509,9 @@ class PayrollRunController extends Controller
                 'period_key' => $r->period_key,
                 'closing_date' => $r->closing_date?->toDateString(),
                 'payment_date' => $r->payment_date?->toDateString(),
+                'selector_label' => \App\Support\PayrollRunDates::selectorLabel($r),
+                'payment_selector_label' => \App\Support\PayrollRunDates::paymentSelectorLabel($r),
+                'closing_period_label' => \App\Support\PayrollRunDates::closingPeriodLabel($r),
                 'status' => $r->status,
             ])
             ->all();

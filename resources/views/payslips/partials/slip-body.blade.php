@@ -35,24 +35,24 @@
 
     <table class="cols">
         <tr>
-            {{-- 勤怠 --}}
-            <td class="col">
-                <div class="col-panel" style="height: {{ $slip['columnMinHeight'] }}px">
-                    <div class="col-head">勤怠</div>
-                    <div class="col-body">
-                        @if($slip['showAttendance'])
+            @if($slip['showAttendance'])
+                {{-- 勤怠 --}}
+                <td class="col">
+                    <div class="col-panel" style="height: {{ $slip['columnMinHeight'] }}px">
+                        <div class="col-head">勤怠</div>
+                        <div class="col-body">
                             <table class="items">
                                 @forelse($slip['attendances'] as $a)
-                                    <tr class="{{ $loop->index % 2 === 0 ? 'alt' : '' }}"><td class="name">{{ $a['name'] }}</td><td class="num">{{ $a['value'] }}</td></tr>
+                                    <tr class="{{ $loop->index % 2 === 0 ? 'alt' : '' }}"><td class="name">{!! $a['nameHtml'] ?? e($a['name']) !!}</td><td class="num num-nowrap">{{ $a['value'] }}</td></tr>
                                 @empty
                                     <tr class="alt"><td class="name">—</td><td class="num"></td></tr>
                                 @endforelse
                             </table>
                             <div class="col-gap" style="height: {{ $slip['attSpacerHeight'] }}px"></div>
-                        @endif
+                        </div>
                     </div>
-                </div>
-            </td>
+                </td>
+            @endif
 
             {{-- 支給 --}}
             <td class="col">
@@ -90,27 +90,31 @@
                 </div>
             </td>
 
-            {{-- 当月支払 ＋ 給与関連情報 --}}
-            <td class="col">
-                <div class="col-panel" style="height: {{ $slip['columnMinHeight'] }}px">
-                    <div class="col-head">当月支払</div>
-                    <div class="col-body">
-                        <table class="items">
-                            @foreach($slip['payments'] as $i => $p)
-                                <tr class="{{ $i % 2 === 0 ? 'alt' : '' }}"><td class="name">{{ $p['name'] }}</td><td class="num">{{ number_format($p['amount']) }}</td></tr>
-                            @endforeach
-                        </table>
-                        <div class="col-gap" style="height: {{ $slip['paySpacerHeight'] }}px"></div>
+            {{-- 当月支払 ＋ 給与関連情報（合計高さ = 他列と揃える） --}}
+            <td class="col col-split">
+                <div class="col-stack" style="height: {{ $slip['columnMinHeight'] }}px">
+                    <div class="col-panel" style="height: {{ $slip['payPanelHeight'] }}px">
+                        <div class="col-head">当月支払</div>
+                        <div class="col-body">
+                            <table class="items">
+                                @foreach($slip['payments'] as $i => $p)
+                                    <tr class="{{ $i % 2 === 0 ? 'alt' : '' }}"><td class="name">{{ $p['name'] }}</td><td class="num num-nowrap">{{ number_format($p['amount']) }}</td></tr>
+                                @endforeach
+                            </table>
+                            <div class="col-gap" style="height: {{ $slip['paySpacerHeight'] }}px"></div>
+                        </div>
                     </div>
+                    @if(!empty($slip['relatedInfo']))
+                        <div class="col-related">
+                            <div class="col-head">給与関連情報</div>
+                            <table class="items">
+                                @foreach($slip['relatedInfo'] as $i => $r)
+                                    <tr class="{{ $i % 2 === 0 ? 'alt' : '' }}"><td class="name">{{ $r['label'] }}</td><td class="num num-nowrap">{{ $r['value'] }}</td></tr>
+                                @endforeach
+                            </table>
+                        </div>
+                    @endif
                 </div>
-                @if(!empty($slip['relatedInfo']))
-                    <div class="col-head">給与関連情報</div>
-                    <table class="items">
-                        @foreach($slip['relatedInfo'] as $i => $r)
-                            <tr class="{{ $i % 2 === 0 ? 'alt' : '' }}"><td class="name">{{ $r['label'] }}</td><td class="num">{{ $r['value'] }}</td></tr>
-                        @endforeach
-                    </table>
-                @endif
             </td>
         </tr>
     </table>

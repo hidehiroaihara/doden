@@ -39,6 +39,12 @@ body { margin: 0; padding: 28px; color: #1f2937; font-size: 11px; background: #f
 .items td { padding: 6px 7px; font-size: 10px; line-height: 1.35; }
 .items td.name { color: #374151; }
 .items td.num { text-align: right; color: #111827; }
+.items td.num-nowrap { white-space: nowrap; width: 1%; }
+.col.col-split { border: none; padding: 0; }
+.col-stack { display: flex; flex-direction: column; box-sizing: border-box; }
+.col-stack > .col-panel,
+.col-related { flex-shrink: 0; border: 1px solid #c3d0e0; box-sizing: border-box; overflow: hidden; }
+.col-related { margin-top: 6px; }
 .items tr.alt td { background: #eef4fb; }
 .items tr.total td { background: #dbe6f4; font-weight: bold; border-top: 1px solid #b8c9e0; }
 

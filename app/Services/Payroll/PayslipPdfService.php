@@ -8,6 +8,7 @@ use App\Models\DeductionItemMaster;
 use App\Models\Payslip;
 use App\Models\Setting;
 use App\Support\AttendanceUnitFormat;
+use App\Support\PayrollRunDates;
 use App\Support\PayslipItemDisplayOrder;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Carbon;
@@ -26,6 +27,9 @@ class PayslipPdfService
     private const COL_HEAD_PX = 30;
 
     private const COL_ROW_PX = 26;
+
+    /** 当月支払と給与関連情報の間隔（プレビュー gap-1.5 と同等）。 */
+    private const COL_STACK_GAP_PX = 6;
 
     /** 4カラムの最低行数（MF参考：項目が少なくても余白を確保）。 */
     private const COL_MIN_ROWS = 8;
@@ -89,13 +93,16 @@ class PayslipPdfService
             'items',
             'payrollRun.businessLocation:id,name',
             'user.employeePayroll.businessLocation:id,name',
+            'user.employeePayroll:id,user_id,employee_no,pay_type,hourly_wage,hourly_wage2,standard_reward_health,standard_reward_pension,dependents_count,tax_table,business_location_id',
             'user.department:id,name',
         ]);
 
         $run = $payslip->payrollRun;
         $employee = $payslip->user?->employeePayroll;
         $settings = $this->displaySettings();
-        [$closingDate, $paymentDate] = $this->resolveRunDates($run);
+        /** 月給社員の明細は勤怠・給与関連情報を出さない（時給・日給は設定どおり）。 */
+        $isMonthlyEmployee = $employee?->pay_type === 'monthly';
+        [$closingDate, $paymentDate] = PayrollRunDates::resolve($run);
 
         $earningItems = PayslipItemDisplayOrder::sort($payslip, $payslip->items->where('item_type', 'earning'), 'earning');
         $deductionItems = PayslipItemDisplayOrder::sort($payslip, $payslip->items->where('item_type', 'deduction'), 'deduction');
@@ -125,6 +132,7 @@ class PayslipPdfService
             ->filter(fn ($i) => $this->includeAttendanceOnPayslip($i))
             ->map(fn ($i) => [
                 'name' => $i->name,
+                'nameHtml' => $this->formatPayslipLabelHtml($i->name),
                 'value' => AttendanceUnitFormat::format(
                     $i->minutes,
                     $i->quantity !== null ? (float) $i->quantity : null,
@@ -133,7 +141,10 @@ class PayslipPdfService
             ])
             ->values()->all();
 
-        $attCount = $settings['payslip_show_attendance'] ? count($attendances) : 0;
+        $relatedInfo = $isMonthlyEmployee ? [] : $this->relatedInfo($payslip, $employee, $settings);
+
+        $showAttendance = ! $isMonthlyEmployee && $settings['payslip_show_attendance'];
+        $attCount = $showAttendance ? count($attendances) : 0;
         $alignRows = max(self::COL_MIN_ROWS, $attCount, count($earnings) + 1, count($deductions) + 1);
         $columnMinHeight = self::COL_HEAD_PX + $alignRows * self::COL_ROW_PX;
         $bodyHeight = $columnMinHeight - self::COL_HEAD_PX;
@@ -144,7 +155,14 @@ class PayslipPdfService
         $earnSpacerHeight = max(0, $bodyHeight - count($earnings) * self::COL_ROW_PX - self::COL_ROW_PX);
         $dedSpacerHeight = max(0, $bodyHeight - count($deductions) * self::COL_ROW_PX - self::COL_ROW_PX);
         $attSpacerHeight = max(0, $bodyHeight - $attItemRows * self::COL_ROW_PX);
-        $paySpacerHeight = max(0, $bodyHeight - count($payments) * self::COL_ROW_PX);
+
+        $relatedCount = count($relatedInfo);
+        $relatedBlockHeight = $relatedCount > 0
+            ? self::COL_HEAD_PX + $relatedCount * self::COL_ROW_PX + self::COL_STACK_GAP_PX
+            : 0;
+        $payPanelHeight = $columnMinHeight - $relatedBlockHeight;
+        $payBodyHeight = max(0, $payPanelHeight - self::COL_HEAD_PX);
+        $paySpacerHeight = max(0, $payBodyHeight - count($payments) * self::COL_ROW_PX);
 
         return [
             'id' => $payslip->id,
@@ -153,8 +171,10 @@ class PayslipPdfService
             'earnSpacerHeight' => $earnSpacerHeight,
             'dedSpacerHeight' => $dedSpacerHeight,
             'attSpacerHeight' => $attSpacerHeight,
+            'payPanelHeight' => $payPanelHeight,
             'paySpacerHeight' => $paySpacerHeight,
-            'title' => $this->title($run, $settings['payslip_display_month'], $closingDate, $paymentDate),
+            'relatedBlockHeight' => $relatedBlockHeight,
+            'title' => $this->title($run),
             'paymentDate' => $this->wareki($paymentDate, true),
             'targetPeriod' => $settings['payslip_show_target_period'] ? $this->targetPeriod($closingDate) : null,
             'userName' => $payslip->user?->name ?? '—',
@@ -163,7 +183,7 @@ class PayslipPdfService
                 : null,
             'department' => $settings['payslip_show_department'] ? ($payslip->user?->department?->name ?? '') : null,
             'employeeNo' => $employee?->employee_no,
-            'showAttendance' => (bool) $settings['payslip_show_attendance'],
+            'showAttendance' => $showAttendance,
             'attendances' => $attendances,
             'earnings' => $earnings,
             'deductions' => $deductions,
@@ -171,7 +191,7 @@ class PayslipPdfService
             'totalDeductions' => (int) $payslip->total_deductions,
             'netPay' => (int) $payslip->net_pay,
             'payments' => $payments,
-            'relatedInfo' => $this->relatedInfo($payslip, $employee, $settings),
+            'relatedInfo' => $relatedInfo,
             'ytd' => $settings['payslip_show_ytd'] ? $this->yearToDate($payslip) : null,
             'remarks' => $payslip->remarks,
         ];
@@ -225,39 +245,14 @@ class PayslipPdfService
         return (bool) ($showZeroByMasterId[$masterId] ?? false);
     }
 
-    /**
-     * 支給日・締め日。バッチに未設定の場合は period_key から補完する。
-     *
-     * @return array{0: ?Carbon, 1: ?Carbon}
-     */
-    private function resolveRunDates($run): array
-    {
-        if (! $run) {
-            return [null, null];
-        }
-
-        $closing = $run->closing_date ? $run->closing_date->copy() : null;
-        $payment = $run->payment_date ? $run->payment_date->copy() : null;
-
-        if (! $closing && preg_match('/^(\d{4})-(\d{2})$/', (string) $run->period_key, $m)) {
-            $closing = Carbon::create((int) $m[1], (int) $m[2], 1)->endOfMonth();
-        }
-        if (! $payment && $closing) {
-            $payment = $closing->copy()->addMonth()->day(min(25, $closing->copy()->addMonth()->daysInMonth));
-        }
-
-        return [$closing, $payment];
-    }
-
     /** 帳票タイトル「YYYY（令和NN）年MM月分　給与明細書」。 */
-    private function title($run, string $mode, ?Carbon $closingDate, ?Carbon $paymentDate): string
+    private function title($run): string
     {
         if (! $run) {
             return '給与明細書';
         }
 
-        $date = $mode === 'closing' ? $closingDate : $paymentDate;
-        $date = $date ?? $paymentDate ?? $closingDate;
+        $date = PayrollRunDates::displayMonth($run);
 
         if (! $date) {
             return '給与明細書';
@@ -280,6 +275,18 @@ class PayslipPdfService
         $start = $closing->copy()->startOfMonth();
 
         return $this->wareki($start, true) . '〜' . $this->wareki($closing, true);
+    }
+
+    /**
+     * 勤怠項目名：全角括弧内を改行し、数値＋単位側の改行を防ぐ（PDF用 HTML）。
+     */
+    private function formatPayslipLabelHtml(string $name): string
+    {
+        if (preg_match('/^(.+?)（(.+?)）$/u', $name, $m)) {
+            return e($m[1]).'<br>（'.e($m[2]).'）';
+        }
+
+        return e($name);
     }
 
     /** 和暦表記。$withDay=true で日まで、false で月まで。 */
@@ -309,6 +316,9 @@ class PayslipPdfService
         $rows = [];
         if ($s['payslip_show_hourly'] && (int) $employee->hourly_wage > 0) {
             $rows[] = ['label' => '時給1', 'value' => number_format((int) $employee->hourly_wage)];
+        }
+        if ($s['payslip_show_hourly'] && (int) ($employee->hourly_wage2 ?? 0) > 0) {
+            $rows[] = ['label' => '時給2', 'value' => number_format((int) $employee->hourly_wage2)];
         }
         if ($s['payslip_show_standard_monthly']) {
             $stdHealth = $payslip->snapshot_standard_reward_health ?? (int) $employee->standard_reward_health;
