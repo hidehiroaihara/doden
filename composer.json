@@ -15,6 +15,7 @@
         "phpoffice/phpspreadsheet": "^5.9",
         "sentry/sentry-laravel": "^4.25",
         "setasign/fpdi-tcpdf": "^2.3",
+        "smalot/pdfparser": "^2.12",
         "tightenco/ziggy": "^2.0"
     },
     "require-dev": {

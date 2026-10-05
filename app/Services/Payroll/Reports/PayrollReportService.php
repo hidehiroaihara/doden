@@ -4,6 +4,7 @@ namespace App\Services\Payroll\Reports;
 
 use App\Models\Payslip;
 use App\Models\PayrollRun;
+use App\Support\PayrollRunDates;
 use Illuminate\Support\Collection;
 
 /**
@@ -22,7 +23,7 @@ class PayrollReportService
         'nursing_insurance',
         'pension_insurance',
         'employment_insurance',
-        'children_contribution',
+        'child_contribution',
     ];
 
     public const INCOME_TAX_CODE = 'income_tax';
@@ -30,18 +31,42 @@ class PayrollReportService
     public const RESIDENT_TAX_CODE = 'resident_tax';
 
     /**
-     * 指定年・区分の給与/賞与バッチ（period_key の年で判定）。
+     * 支給日の年で年次集計する際の period_key の検索範囲（前年1月〜当年12月）。
+     * 前年12月締め・当年1月支給のように、締め月と支給年がずれるバッチを含めるため広めに取る。
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function periodKeyWindow(int $year): array
+    {
+        return [($year - 1) . '-01', "{$year}-12"];
+    }
+
+    /** 支給日（未設定なら締め日から推定）の年が指定年か。所得税の年分は支給日で決まる。 */
+    public static function isPaidInYear(?PayrollRun $run, int $year): bool
+    {
+        if (! $run) {
+            return false;
+        }
+        [, $payment] = PayrollRunDates::resolve($run);
+
+        return $payment !== null && $payment->year === $year;
+    }
+
+    /**
+     * 指定年に支給した給与/賞与バッチ。
      *
      * @return Collection<int, PayrollRun>
      */
     public function runsForYear(int $year, ?int $locationId = null, ?string $payType = null): Collection
     {
         return PayrollRun::query()
-            ->whereBetween('period_key', ["{$year}-01", "{$year}-12"])
+            ->whereBetween('period_key', self::periodKeyWindow($year))
             ->when($locationId, fn ($q) => $q->where('business_location_id', $locationId))
             ->when($payType, fn ($q) => $q->where('pay_type', $payType))
             ->orderBy('period_key')
-            ->get();
+            ->get()
+            ->filter(fn (PayrollRun $r) => self::isPaidInYear($r, $year))
+            ->values();
     }
 
     /**
@@ -87,7 +112,8 @@ class PayrollReportService
     }
 
     /**
-     * ある年の従業員1人分の給与/賞与明細を period_key キーで取得。
+     * ある年（支給日の年）の従業員1人分の給与/賞与明細を取得。
+     * 給与は支給年月（Y-m）キー、賞与は period_key キー。
      *
      * @return array{salary: Collection<string, Payslip>, bonus: Collection<string, Payslip>}
      */
@@ -96,17 +122,19 @@ class PayrollReportService
         $payslips = Payslip::query()
             ->where('user_id', $userId)
             ->whereHas('payrollRun', function ($q) use ($year, $locationId) {
-                $q->whereBetween('period_key', ["{$year}-01", "{$year}-12"]);
+                $q->whereBetween('period_key', self::periodKeyWindow($year));
                 if ($locationId) {
                     $q->where('business_location_id', $locationId);
                 }
             })
-            ->with(['items', 'payrollRun:id,period_key,pay_type,payment_date'])
-            ->get();
+            ->with(['items', 'payrollRun:id,period_key,pay_type,closing_date,payment_date'])
+            ->get()
+            ->filter(fn (Payslip $p) => self::isPaidInYear($p->payrollRun, $year))
+            ->sortBy(fn (Payslip $p) => $p->payrollRun->period_key);
 
         return [
             'salary' => $payslips->filter(fn ($p) => $p->payrollRun?->pay_type !== 'bonus')
-                ->keyBy(fn ($p) => $p->payrollRun->period_key),
+                ->keyBy(fn ($p) => PayrollRunDates::resolve($p->payrollRun)[1]->format('Y-m')),
             'bonus' => $payslips->filter(fn ($p) => $p->payrollRun?->pay_type === 'bonus')
                 ->keyBy(fn ($p) => $p->payrollRun->period_key),
         ];
@@ -128,11 +156,8 @@ class PayrollReportService
         }
 
         foreach (['salary', 'bonus'] as $kind) {
-            foreach ($data[$kind] as $periodKey => $payslip) {
-                $month = (int) substr((string) $periodKey, 5, 2);
-                if ($month >= 1 && $month <= 12) {
-                    $byMonth[$month]->push($payslip);
-                }
+            foreach ($data[$kind] as $payslip) {
+                $byMonth[(int) PayrollRunDates::resolve($payslip->payrollRun)[1]->month]->push($payslip);
             }
         }
 

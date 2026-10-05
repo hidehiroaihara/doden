@@ -274,10 +274,12 @@ class YearEndAdjustmentController extends Controller
     private function reflectableRuns(int $year): array
     {
         return PayrollRun::query()
-            ->whereBetween('period_key', ["{$year}-01", "{$year}-12"])
+            ->whereBetween('period_key', PayrollReportService::periodKeyWindow($year))
             ->with('businessLocation:id,name')
             ->orderByDesc('period_key')
             ->get()
+            ->filter(fn (PayrollRun $r) => PayrollReportService::isPaidInYear($r, $year))
+            ->values()
             ->map(fn (PayrollRun $r) => [
                 'id' => $r->id,
                 'label' => $r->period_key . ($r->pay_type === 'bonus' ? '（賞与）' : '') . ($r->businessLocation ? ' / ' . $r->businessLocation->name : '') . ($r->isFinalized() ? '【確定済】' : ''),
