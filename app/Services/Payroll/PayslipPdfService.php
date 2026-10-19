@@ -89,11 +89,14 @@ class PayslipPdfService
     public function viewData(Payslip $payslip): array
     {
         $payslip->loadMissing([
-            'user:id,name',
             'items',
             'payrollRun.businessLocation:id,name',
-            'user.employeePayroll.businessLocation:id,name',
+        ]);
+        // 呼び出し元（一括出力ジョブ等）が列を絞って先読みしていても、給与区分・所属・部門を必ず揃える。
+        $payslip->load([
+            'user:id,name',
             'user.employeePayroll:id,user_id,employee_no,pay_type,hourly_wage,hourly_wage2,standard_reward_health,standard_reward_pension,dependents_count,tax_table,business_location_id',
+            'user.employeePayroll.businessLocation:id,name',
             'user.department:id,name',
         ]);
 

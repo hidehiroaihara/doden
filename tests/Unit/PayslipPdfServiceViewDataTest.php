@@ -58,6 +58,13 @@ class PayslipPdfServiceViewDataTest extends TestCase
 
         $this->assertFalse($data['showAttendance']);
         $this->assertSame([], $data['relatedInfo']);
+
+        // 一括出力ジョブと同じく、従業員情報を列を絞って先読みした場合も同じ表示になる。
+        $preloaded = Payslip::with(['user:id,name', 'user.employeePayroll:id,user_id,employee_no'])->find($payslip->id);
+        $exported = app(PayslipPdfService::class)->viewData($preloaded);
+
+        $this->assertFalse($exported['showAttendance']);
+        $this->assertSame([], $exported['relatedInfo']);
     }
 
     public function test_hourly_employee_payslip_shows_attendance_when_setting_enabled(): void
