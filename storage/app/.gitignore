@@ -1,4 +1,6 @@
 *
 !private/
 !public/
+!mf-migration/
+!mf-migration/**
 !.gitignore
