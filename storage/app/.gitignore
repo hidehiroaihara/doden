@@ -2,5 +2,5 @@
 !private/
 !public/
 !mf-migration/
-!mf-migration/**
+!mf-migration/.gitkeep
 !.gitignore
