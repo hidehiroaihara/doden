@@ -235,33 +235,7 @@ class MfPayslipImporter
      */
     private function resolveEmployee(array $slip): array
     {
-        $employees = $this->employees();
-        $pdfName = self::normalizeName((string) $slip['name']);
-
-        $byNo = $employees->first(fn (EmployeePayroll $e) => (string) $e->employee_no === (string) $slip['employee_no']);
-        if ($byNo && self::normalizeName((string) $byNo->user?->name) === $pdfName) {
-            return [$byNo, null];
-        }
-
-        $byName = $employees->filter(fn (EmployeePayroll $e) => self::normalizeName((string) $e->user?->name) === $pdfName);
-        if ($byName->count() === 1) {
-            $e = $byName->first();
-
-            return [$e, sprintf(
-                '従業員番号 %s %sはシステム上の番号では見つからないため、氏名が一致する従業員番号 %s %sに登録します',
-                $slip['employee_no'],
-                $byNo ? "（システムでは {$byNo->user?->name}）" : '',
-                $e->employee_no ?? '(未設定)',
-                $e->user?->name,
-            )];
-        }
-        if ($byName->count() > 1) {
-            return [null, "氏名「{$slip['name']}」の従業員が複数いて特定できません"];
-        }
-
-        return [null, $byNo
-            ? "従業員番号 {$slip['employee_no']} はシステムでは「{$byNo->user?->name}」で、氏名「{$slip['name']}」と一致しません"
-            : "従業員番号 {$slip['employee_no']}「{$slip['name']}」がシステムに登録されていません"];
+        return (new MfMigrationEmployeeResolver())->resolve((string) $slip['employee_no'], (string) $slip['name']);
     }
 
     /** 空白・全角半角の違いを無視して氏名を比較する。 */
