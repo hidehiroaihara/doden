@@ -78,6 +78,31 @@ class Payslip extends Model
         return $this->items()->where('item_type', 'deduction');
     }
 
+    /**
+     * 明細行（手入力の上書きを含む）から支給合計・控除合計・差引支給額を再集計して保存する。
+     * 一覧・給与明細・帳票はこの集計値を参照するため、明細行を変更したら必ず呼ぶ。
+     */
+    public function syncTotalsFromItems(): static
+    {
+        $totals = $this->items()
+            ->reorder()
+            ->whereIn('item_type', ['earning', 'deduction'])
+            ->selectRaw('item_type, COALESCE(SUM(amount),0) as total')
+            ->groupBy('item_type')
+            ->pluck('total', 'item_type');
+
+        $earnings = (int) ($totals['earning'] ?? 0);
+        $deductions = (int) ($totals['deduction'] ?? 0);
+
+        $this->update([
+            'total_earnings' => $earnings,
+            'total_deductions' => $deductions,
+            'net_pay' => $earnings - $deductions,
+        ]);
+
+        return $this;
+    }
+
     public function attendances(): HasMany
     {
         return $this->items()->where('item_type', 'attendance');

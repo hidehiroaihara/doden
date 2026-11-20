@@ -481,20 +481,7 @@ class PayrollRunController extends Controller
             return;
         }
 
-        $totals = $payslip->items()
-            ->reorder()
-            ->selectRaw('item_type, COALESCE(SUM(amount),0) as total')
-            ->groupBy('item_type')
-            ->pluck('total', 'item_type');
-
-        $earnings = (int) ($totals['earning'] ?? 0);
-        $deductions = (int) ($totals['deduction'] ?? 0);
-
-        $payslip->update([
-            'total_earnings' => $earnings,
-            'total_deductions' => $deductions,
-            'net_pay' => $earnings - $deductions,
-        ]);
+        $payslip->syncTotalsFromItems();
     }
 
     /** 支給期間セレクタ用: 同一種別のバッチ一覧（新しい順）。 */

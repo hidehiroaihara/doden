@@ -136,6 +136,10 @@ class PayrollCalculator
                 ]);
             }
 
+            // 手入力で残した行（控除の上書き等）も含めて合計を確定させる。
+            // 自動計算値だけで集計すると、一覧・明細の差引支給額が表と食い違う。
+            $payslip->syncTotalsFromItems();
+
             return $payslip->load('items');
         });
     }
