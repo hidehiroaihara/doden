@@ -141,6 +141,41 @@ class ManualEarningRecalcTest extends TestCase
         $this->assertSame($expectedTax, (int) $payslip->items->firstWhere('code', 'income_tax')->amount);
     }
 
+    public function test_manual_deduction_is_reflected_in_totals_after_recalculate(): void
+    {
+        $location = $this->seedMasters();
+        [, $run, $payslip] = $this->calculateEmployee($location);
+
+        $position = $payslip->items->firstWhere('code', 'position_allowance');
+        $employment = $payslip->items->firstWhere('code', 'employment_insurance');
+        $incomeTax = $payslip->items->firstWhere('code', 'income_tax');
+
+        // 支給・控除を手入力した上で「この従業員を再計算」
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->post(route('admin.payroll.runs.payslips.recalculate', [
+                'run' => $run->id,
+                'payslip' => $payslip->id,
+            ]), [
+                'items' => [
+                    ['id' => $position->id, 'amount' => 160000],
+                    ['id' => $employment->id, 'amount' => 1854],
+                    ['id' => $incomeTax->id, 'amount' => 7290],
+                ],
+            ])
+            ->assertRedirect();
+
+        $payslip->refresh()->load('items');
+        $this->assertSame(1854, (int) $payslip->items->firstWhere('code', 'employment_insurance')->amount);
+        $this->assertSame(7290, (int) $payslip->items->firstWhere('code', 'income_tax')->amount);
+
+        // 一覧・明細が参照する合計が、表に出ている明細行と一致すること
+        $sumEarnings = (int) $payslip->items->where('item_type', 'earning')->sum('amount');
+        $sumDeductions = (int) $payslip->items->where('item_type', 'deduction')->sum('amount');
+        $this->assertSame($sumEarnings, (int) $payslip->total_earnings);
+        $this->assertSame($sumDeductions, (int) $payslip->total_deductions);
+        $this->assertSame($sumEarnings - $sumDeductions, (int) $payslip->net_pay);
+    }
+
     public function test_recalculate_does_not_touch_other_employees(): void
     {
         $location = $this->seedMasters();
